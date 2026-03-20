@@ -10,9 +10,9 @@ import mill.scalalib._
 // to properly generate and handle test directories and output files.
 // See: https://github.com/com-lihaoyi/mill/issues/3840
 
-object `Chisel_template` extends SbtModule {
-  def scalaVersion = "2.13.18"
-  def chiselVersion = "7.7.0"
+object `MyCPU` extends SbtModule {
+  def scalaVersion = "2.13.12"
+  def chiselVersion = "6.6.0"
 
   def moduleDir = super.moduleDir / os.up
 
@@ -31,7 +31,9 @@ object `Chisel_template` extends SbtModule {
   )
   object test extends SbtTests with TestModule.ScalaTest {
     override def mvnDeps = Seq(
-      mvn"org.scalatest::scalatest::3.2.19"
+      mvn"org.scalatest::scalatest::3.2.16",
+
+      mvn"edu.berkeley.cs::chiseltest:6.0.0"
     )
   }
 }

@@ -1,0 +1,137 @@
+package MyCPU.be
+
+import chisel3._
+import chisel3.util._
+
+import MyCPU.common._
+
+class IssueQueueIO(implicit p: CoreParams)
+extends Bundle
+with MyCPU.common.constants.ScalaOpConsts
+{
+    val enq = Flipped(Decoupled(Vec(p.decodeWidth ,new MicroOp)))
+
+    val iss_alu = Decoupled(new MicroOp)
+
+    val iss_lsu = Decoupled(new MicroOp)
+
+    val cdb = Flipped(Vec(2, Valid(new CDBIO)))
+
+    val flush = Input(Bool())
+
+
+}
+
+class IssueQueue(implicit p: CoreParams)
+extends Module
+with MyCPU.common.constants.ScalaOpConsts
+with MyCPU.common.constants.RISCVConsts
+{
+    val io = IO(new IssueQueueIO)
+
+    val slot_valid = RegInit(VecInit(Seq.fill(p.numIssueEntries)(false.B)))
+    val slot_uop = Reg(Vec(p.numIssueEntries, new MicroOp))
+
+    val slot_rs1_ready = Reg(Vec(p.numIssueEntries, Bool()))
+    val slot_rs2_ready = Reg(Vec(p.numIssueEntries, Bool()))
+
+    val next_rs1_ready = Wire(Vec(p.numIssueEntries, Bool()))
+    val next_rs2_ready = Wire(Vec(p.numIssueEntries, Bool()))
+
+    val slot_ready = Wire(Vec(p.numIssueEntries, Bool()))
+
+    for(i <- 0 until p.numIssueEntries){
+        val uop = slot_uop(i)
+
+        val match_rs1_cdb0 = io.cdb(0).valid && (io.cdb(0).bits.p_rd === uop.p_rs1) && (uop.p_rs1 =/= 0.U)
+        val match_rs1_cdb1 = io.cdb(1).valid && (io.cdb(1).bits.p_rd === uop.p_rs1) && (uop.p_rs1 =/= 0.U)
+        val wakeup_rs1 = match_rs1_cdb0 || match_rs1_cdb1
+    
+        val match_rs2_cdb0 = io.cdb(0).valid && (io.cdb(0).bits.p_rd === uop.p_rs2) && (uop.p_rs2 =/= 0.U)
+        val match_rs2_cdb1 = io.cdb(1).valid && (io.cdb(1).bits.p_rd === uop.p_rs2) && (uop.p_rs2 =/= 0.U)
+        val wakeup_rs2 = match_rs2_cdb0 || match_rs2_cdb1
+
+        next_rs1_ready(i) := slot_rs1_ready(i) || wakeup_rs1
+        next_rs2_ready(i) := slot_rs2_ready(i) || wakeup_rs2   
+
+        slot_ready(i) := slot_valid(i) && next_rs1_ready(i) && next_rs2_ready(i)
+    }
+
+
+    val alu_reqs = Wire(Vec(p.numIssueEntries, Bool()))
+    val lsu_reqs = Wire(Vec(p.numIssueEntries, Bool()))
+
+    // 2. 遍历每一个槽位，明确指定连线关系
+    for (i <- 0 until p.numIssueEntries) {
+      val u = slot_uop(i)
+      val r = slot_ready(i)
+      
+      // 注意这里：ALU 端口可以处理 ALU 和 BRU 指令
+      val is_alu_type = (u.fu_code === FC_ALU.U(FC_SZ.W)) || (u.fu_code === FC_BRU.U(FC_SZ.W))
+      // LSU 端口只处理 MEM 指令
+      val is_lsu_type = (u.fu_code === FC_MEM.U(FC_SZ.W))
+
+      alu_reqs(i) := r && is_alu_type
+      lsu_reqs(i) := r && is_lsu_type
+    }
+
+    //PE find the first one .orR make sure is truly have one
+    //maybe need change 
+    val sel_alu_idx = PriorityEncoder(alu_reqs)
+    val sel_lsu_idx = PriorityEncoder(lsu_reqs)
+
+    val can_iss_alu = alu_reqs.asUInt.orR
+    val can_iss_lsu = lsu_reqs.asUInt.orR
+
+
+    val free_slot = slot_valid.map(!_)
+    val alloc_idx_0 = PriorityEncoder(free_slot)
+    val free_slots_marks1 = Wire(Vec(p.numIssueEntries, Bool()))
+    for (i <- 0 until p.numIssueEntries){
+      free_slots_marks1(i) := free_slot(i) && (i.U =/= alloc_idx_0)
+    }
+    val alloc_idx_1 = PriorityEncoder(free_slots_marks1)
+
+    val has_1_free
+    val has_2_free
+    /*
+    val alloc_idx = PriorityEncoder(free_slot)
+    val has_free = free_slot.reduce(_ || _)
+
+    io.enq.ready := has_free
+    val do_alloc = io.enq.fire
+
+    val do_iss_alu = io.iss_alu.ready && can_iss_alu
+    val do_iss_lsu = io.iss_lsu.ready && can_iss_lsu
+
+    for(i <- 0 until p.numIssueEntries){
+    
+      val is_this_alloc = do_alloc && (alloc_idx === i.U)
+      val is_this_iss_alu = do_iss_alu && (sel_alu_idx === i.U)
+      val is_this_iss_lsu = do_iss_lsu && (sel_lsu_idx === i.U)
+      val is_this_issued = is_this_iss_alu || is_this_iss_lsu
+  
+      slot_valid(i) := Mux(io.flush, false.B,
+                       Mux(is_this_issued, false.B,
+                       Mux(is_this_alloc, true.B,
+                       slot_valid(i))))
+      slot_uop(i) := Mux(is_this_alloc, io.enq.bits, slot_uop(i))
+  
+      val init_rs1_ready = !io.enq.bits.use_rs1 || io.enq.bits.prs1_ready
+      val init_rs2_ready = !io.enq.bits.use_rs2 || io.enq.bits.prs2_ready
+  
+      slot_rs1_ready(i) := Mux(is_this_alloc, init_rs1_ready,
+                           Mux(!is_this_issued, next_rs1_ready(i),
+                           slot_rs1_ready(i)))
+  
+      slot_rs2_ready(i) := Mux(is_this_alloc, init_rs2_ready,
+                           Mux(!is_this_issued, next_rs2_ready(i),
+                           slot_rs2_ready(i)))
+    }
+    io.iss_alu.valid := can_iss_alu
+    io.iss_alu.bits  := slot_uop(sel_alu_idx)
+
+    io.iss_lsu.valid := can_iss_lsu
+    io.iss_lsu.bits  := slot_uop(sel_lsu_idx)
+    */
+}       

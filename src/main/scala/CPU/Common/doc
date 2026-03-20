@@ -1,0 +1,56 @@
+LEGAL (Bool):
+含义: 指令是否合法？
+作用: 如果为 N (False)，ROB 提交时触发 "Illegal Instruction" 异常。
+FU_TYPE (UInt):
+含义: 这条指令应该发给哪个功能单元？
+枚举值:
+FU_ALU: 普通计算 (ADD, SUB, JAL...)
+FU_MEM: 访存 (LW, SW...)
+FU_BRU: 分支判断 (BEQ, BNE...)
+FU_MUL: 乘除法 (MUL, DIV...) - 因为你可能有独立的乘除法器或者想把长延迟指令分开
+FU_CSR: 系统指令 (CSRRW, ECALL...)
+2. 寄存器重命名信号 (Renaming Control)
+这些信号指导 Rename 单元 如何操作 RAT 和 FreeList。这是乱序核最关键的部分。
+RF_WEN (Bool):
+含义: 是否写回目标寄存器 (Register File Write Enable)？
+例子: ADD=Y, LW=Y, BEQ=N, SW=N。
+作用: Rename 单元看到 Y，就会从 FreeList 分配一个新物理寄存器。
+USE_RS1 (Bool):
+含义: 是否读取 RS1？
+作用: Rename 单元看到 Y，就会去 RAT 查 rs1 的映射；否则忽略。
+USE_RS2 (Bool):
+含义: 是否读取 RS2？
+例子: ADD=Y, ADDI=N (用立即数), LUI=N。
+3. ALU 执行控制信号 (ALU Execution)
+这些信号指导 ALU 进行具体计算。
+ALU_OP (UInt):
+含义: 具体做什么运算？
+枚举值: ALU_ADD, ALU_SUB, ALU_AND, ALU_SLT...
+OP1_SEL (UInt):
+含义: ALU 的操作数 1 来自哪里？
+枚举值:
+OP1_RS1: 来自寄存器 (普通指令)
+OP1_PC : 来自 PC (用于 AUIPC, JAL, JALR)
+OP2_SEL (UInt):
+含义: ALU 的操作数 2 来自哪里？
+枚举值:
+OP2_RS2: 来自寄存器 (ADD)
+OP2_IMM: 来自立即数 (ADDI, LW, SW)
+OP2_PC : 来自常量 4 (用于 JAL/JALR 计算 PC+4)
+IS_W (Bool): (RV64 特有)
+含义: 是否是 32 位截断操作？(ADDW, SUBW, SLLW...)
+作用: 告诉 ALU 计算完后是否需要做符号扩展截断。
+4. 访存控制信号 (Memory Control)
+这些信号指导 LSU (Load Store Unit)。
+MEM_CMD (UInt):
+含义: 访存类型。
+枚举值: M_X (无), M_XRD (读/Load), M_XWR (写/Store)。
+MEM_SIZE (UInt):
+含义: 数据宽度。
+枚举值: MT_B (Byte), MT_H (Half), MT_W (Word), MT_D (Double)。
+MEM_SIGNED (Bool):
+含义: Load 是否进行符号扩展？
+例子: LB=Y, LBU=N。
+LEGAL, FU_TYPE, ALU_OP, OP1_SEL, OP2_SEL, RF_WEN, USE_RS1, USE_RS2, MEM_CMD, MEM_SIZE, MEM_SIGNED, IS_W
+
+package_name = MyCPU
