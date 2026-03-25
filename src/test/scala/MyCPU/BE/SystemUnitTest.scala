@@ -3,6 +3,9 @@ package MyCPU
 import chisel3._
 import chiseltest._
 import org.scalatest.flatspec.AnyFlatSpec
+
+
+
 import MyCPU.common._
 
 class SystemUnitTest extends AnyFlatSpec with ChiselScalatestTester {
@@ -11,8 +14,8 @@ class SystemUnitTest extends AnyFlatSpec with ChiselScalatestTester {
     xLen = 64, 
     numLRegs = 32, 
     numPRegs = 64, 
-    numRobEntries = 16, // 小 ROB 方便观测
-    numIssueEntries = 8,
+    numRobEntries = 32, // 小 ROB 方便观测
+    numIssueEntries = 16,
     fetchWidth = 2, 
     decodeWidth = 2
   )
@@ -39,6 +42,7 @@ class SystemUnitTest extends AnyFlatSpec with ChiselScalatestTester {
    *   while(1);
    * ======================================================================
    */
+/*
   val fibonacciProgram = Seq(
    0x000101b7L, // [0] 00: LUI  x3, 0x10       -> x3 = 0x10000 (Base Addr)
     0x00000213L, //[1] 04: ADDI x4, x0, 0      -> x4 = 0
@@ -64,10 +68,49 @@ class SystemUnitTest extends AnyFlatSpec with ChiselScalatestTester {
     // 结束 (End)    <-- PC = 0x8000_0040
     0x0000006fL  // [10] 40: JAL  x0, 0          -> 死循环停机
   )
+  */
+  /*
+  val write1To10Program = Seq(
+    // --- 初始化阶段 (Initialization) ---
+    0x000101b7L, // [0] 00: LUI  x3, 0x10       -> x3 = 0x10000 (基址 ptr)
+    0x00100213L, // [1] 04: ADDI x4, x0, 1      -> x4 = 1       (写入的值 value，也是计数器)
+    0x00b00293L, // [2] 08: ADDI x5, x0, 11     -> x5 = 11      (循环上限 limit)
 
+    // --- 循环体 (Loop)  <-- PC = 0x0C ---
+    0x0041b023L, // [3] 0C: SD   x4, 0(x3)      -> mem[ptr] = value
+    0x00818193L, // [4] 10: ADDI x3, x3, 8      -> ptr += 8     (指针移到下一个 64-bit 槽位)
+    0x00120213L, // [5] 14: ADDI x4, x4, 1      -> value += 1   (值与计数器加 1)
+    
+    // --- 循环判断 (Branch) ---
+    0xfe521ae3L, // [6] 18: BNE  x4, x5, -12    -> 如果 value != 11, 跳回 0x0C 继续写
+    
+    // --- 结束 (End)    <-- PC = 0x1C ---
+    0x0000006fL  // [7] 1C: JAL  x0, 0          -> 死循环停机
+  )
+  */
+  val fibonacciProgram = Seq(
+    0x000101B7L, // [0] 8000_0000: LUI  x3, 0x10       (ptr = 0x10000)
+    0x00000293L, // [1] 8000_0004: ADDI x5, x0, 0      (a = 0)
+    0x00100313L, // [2] 8000_0008: ADDI x6, x0, 1      (b = 1)
+    0x00A00213L, // [3] 8000_000C: ADDI x4, x0, 10     (count = 10)
+    
+    // loop_start:
+    0x0051B023L, // [4] 8000_0010: SD   x5, 0(x3)      (mem[ptr] = a)
+    0x006283B3L, //[5] 8000_0014: ADD  x7, x5, x6     (next_fib = a + b)
+    0x006002B3L, // [6] 8000_0018: ADD  x5, x0, x6     (a = b)
+    0x00700333L, // [7] 8000_001C: ADD  x6, x0, x7     (b = next_fib)
+    0x00818193L, // [8] 8000_0020: ADDI x3, x3, 8      (ptr += 8)
+    0xFFF20213L, // [9] 8000_0024: ADDI x4, x4, -1     (count -= 1)
+    
+    0xFE0214E3L, //[A] 8000_0028: BNE  x4, x0, -24    (if count!=0 goto loop_start)
+    
+    // end:
+    0x0000006FL  // [B] 8000_002C: JAL  x0, 0          (死循环停机)
+  )
+  
   "MyCoreTop" should "execute Fibonacci program and handle out-of-order memory updates" in {
     // 设置超时周期长一点，因为乱序核分支预测失败的冲刷惩罚比较大
-    test(new SystemTop(fibonacciProgram)).withAnnotations(Seq(WriteVcdAnnotation)) { c =>
+    test(new SystemTop(fibonacciProgram)).withAnnotations(Seq(WriteVcdAnnotation )) { c =>
       
       println("==========================================================")
       println("🚀 System Booting: Baby R10k Out-of-Order Core")
@@ -80,7 +123,7 @@ class SystemUnitTest extends AnyFlatSpec with ChiselScalatestTester {
       // 监控死循环指令 (0x0000006f)，如果执行到了说明程序正常结束
       // 注意：我们在测试台无法直接读内部 PC，所以在外层固定步进 300 拍
       println("Executing instructions... Please wait...")
-      c.clock.step(300)
+      c.clock.step(100)
 
       println("\n==========================================================")
       println("📊 Execution Finished. Inspecting D-Cache Memory:")
@@ -88,6 +131,7 @@ class SystemUnitTest extends AnyFlatSpec with ChiselScalatestTester {
       
       // 预期的斐波那契数列 (前 10 项)
       val expected_fib = Seq(0, 1, 1, 2, 3, 5, 8, 13, 21, 34)
+      val expected_data = Seq(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
       
       var all_passed = true
 

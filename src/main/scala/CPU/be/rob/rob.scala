@@ -2,6 +2,7 @@ package MyCPU.be
 
 import chisel3._
 import chisel3.util._
+import chisel3.dontTouch
 
 import MyCPU.common._
 
@@ -51,9 +52,16 @@ with MyCPU.common.constants.RISCVConsts
     
     val rob_mem_cmd    = Reg(Vec(p.numRobEntries, UInt(MC_SZ.W)))
 
-    val head = RegInit(0.U(p.robBits.W))
-    val tail = RegInit(0.U(p.robBits.W))
-    val count = RegInit(0.U(p.robBits.W))
+    val ptrWidth = p.robBits + 1
+
+    val head = RegInit(0.U((ptrWidth).W))
+    val tail = RegInit(0.U((ptrWidth).W))
+
+
+    val head_idx = head(ptrWidth - 2, 0)
+    val tail_idx = tail(ptrWidth - 2, 0)
+
+    val count = tail - head
     /*
     def wrapInc(ptr: UInt): UInt = {
         val sum = ptr + offset
@@ -64,20 +72,24 @@ with MyCPU.common.constants.RISCVConsts
         val width = log2Ceil(p.numRobEntries)
         sum(width - 1 , 0)
     }
+
+    val is_full = (count === p.numRobEntries.U)
+    val is_empty = (count === 0.U)
     val has_space = count <= (p.numRobEntries.U - 2.U)
+    //val has_space = count <= (p.numRobEntries.U - 2.U)
     io.enq.ready := has_space
 
     val do_alloc = io.enq.valid && has_space
     //ganged mode 2/0 there still have one mode called parties mode 
     val alloc_count = Mux(do_alloc, 2.U, 0.U)
 
-    val tail_0 = tail
-    val tail_1 = wrapInc(tail, 1.U)
+    val tail_0 = tail_idx
+    val tail_1 = wrapInc(tail_idx, 1.U)
     io.rob_idx_alloc(0) := tail_0
     io.rob_idx_alloc(1) := tail_1
 
-    val head_0 = head
-    val head_1 = wrapInc(head, 1.U)
+    val head_0 = head_idx
+    val head_1 = wrapInc(head_idx, 1.U)
 
     val u0_busy = rob_busy(head_0)
     val u0_complete = rob_complete(head_0)
@@ -111,9 +123,12 @@ with MyCPU.common.constants.RISCVConsts
 
     io.flush_pipeline := is_flush
 
-    head  := wrapInc(head, commit_count)
-    tail  := wrapInc(tail, alloc_count)
-    count := count + alloc_count - commit_count
+    head  := head + commit_count
+    tail  := tail + alloc_count
+    //count := count + alloc_count - commit_count
+
+    //debug
+    val debug_rob_inst = RegInit(VecInit(Seq.fill(p.numRobEntries)(0.U(32.W))))
 
     for(i <- 0 until p.numRobEntries){
         val i_u = i.U
@@ -126,7 +141,7 @@ with MyCPU.common.constants.RISCVConsts
 
         val is_commit_0 = (commit_count >= 1.U) && (head_0 === i_u)
         val is_commit_1 = (commit_count === 2.U) && (head_1 === i_u)
-        val is_commit = is_commit_0 || is_commit_1
+        val is_this_commit = is_commit_0 || is_commit_1
 
         val is_wb_0 = io.cdb(0).valid && (io.cdb(0).bits.rob_idx === i_u)
         val is_wb_1 = io.cdb(1).valid && (io.cdb(1).bits.rob_idx === i_u)
@@ -134,17 +149,23 @@ with MyCPU.common.constants.RISCVConsts
         val wb_exc  = (is_wb_0 && io.cdb(0).bits.exc) || (is_wb_1 && io.cdb(1).bits.exc)
 
         rob_busy(i) := Mux(is_alloc, true.B,
-                                    Mux(is_commit, false.B, rob_busy(i)))
+                                    Mux(is_this_commit, false.B, rob_busy(i)))
 
         //care about this
         val init_complete = !alloc_uop.valid
         rob_complete(i) := Mux(is_alloc, init_complete, 
-                                        Mux(is_commit, true.B, rob_complete(i)))
+                                        Mux(is_wb, true.B, rob_complete(i)))
         rob_exc(i) := Mux(is_alloc, alloc_uop.exception, 
                                     Mux(is_wb, rob_exc(i) || wb_exc, rob_exc(i)))
         rob_rf_wen(i) := Mux(is_alloc, alloc_uop.rf_wen && alloc_uop.valid, rob_rf_wen(i))
         rob_is_store(i) := Mux(is_alloc, alloc_uop.mem_cmd === MC_W.U && alloc_uop.valid, rob_is_store(i))
-        rob_stale_p_rd := Mux(is_alloc, alloc_uop.stale_p_rd, rob_stale_p_rd(i))
+        rob_stale_p_rd(i) := Mux(is_alloc, alloc_uop.stale_p_rd, rob_stale_p_rd(i))
+
+        debug_rob_inst(i) := Mux(is_alloc, alloc_uop.inst, debug_rob_inst(i))
+
+        when (rob_busy(i)) {
+            printf(p"ROB[$i] contains inst: 0x${Hexadecimal(debug_rob_inst(i))}\n")
+        }
     }
 
     val cmt0_fire = commit_count >= 1.U
@@ -157,72 +178,9 @@ with MyCPU.common.constants.RISCVConsts
     io.commit_free(1).bits := rob_stale_p_rd(head_1)
     io.commit_store(1) := cmt1_fire && rob_is_store(head_1)
 
-    /*
-    val maybe_full = RegInit(false.B)
-    val ptr_match = head === tail
-    val is_empty = ptr_match && !maybe_full
-    val is_full = ptr_match && maybe_full
- 
-    def wrapInc(ptr: UInt): UInt = Mux(ptr === (p.numRobEntries - 1).U, 0.U, ptr + 1.U)
+    val h0 = head_0
+when(can_commit_0) {
+  printf("[ROB-CMT0] Trying to Commit idx %d. is_store: %b, complete: %b\n", h0, rob_is_store(h0), rob_complete(h0))
+}
 
-    io.enq.ready := !is_full
-    io.rob_idx_alloc := tail
-    val do_alloc = io.enq.fire
-    
-    val head_busy = rob_busy(head)
-    val head_complete = rob_complete(head)
-    val head_exc = rob_exc(head)
-
-    val can_commit = !is_empty && head_busy && head_complete
-    val has_exception = can_commit && head_exc
-    val do_commit   = can_commit && !has_exception
-
-    val next_tail = Mux(do_alloc, wrapInc(tail), tail)
-    val next_head = Mux(do_commit, wrapInc(head), head)
-    val next_maybe_full = Mux(do_alloc =/= do_commit, do_alloc, maybe_full)
-
-    tail := next_tail
-    head := next_head
-    maybe_full := next_maybe_full
-
-    for(i <- 0 until p.numRobEntries){
-        //have some questions
-        val is_this_alloc  = do_alloc && (tail === i.U)
-        val is_this_commit = do_commit && (head === i.U)
-
-        val is_this_wb0 = io.cdb(0).valid && (io.cdb(0).bits.rob_idx === i.U)
-        val is_this_wb1 = io.cdb(1).valid && (io.cdb(1).bits.rob_idx === i.U)
-        val is_this_wb  = is_this_wb0 || is_this_wb1
-
-        val wb_exc = (is_this_wb0 && io.cdb(0).bits.exc) || (is_this_wb1 && io.cdb(1).bits.exc)
-
-        rob_busy(i) := Mux(is_this_alloc, true.B,
-                            Mux(is_this_commit, false.B,
-                                rob_busy(i)))
-
-        rob_complete(i) := Mux(is_this_alloc, false.B,
-                       Mux(is_this_wb, true.B,
-                       rob_complete(i)))
-
-        rob_exc(i) := Mux(is_this_alloc, io.enq.bits.exception,
-                        Mux(is_this_wb, rob_exc(i) || wb_exc,
-                            rob_exc(i)))
-        rob_rf_wen(i)     := Mux(is_this_alloc, io.enq.bits.rf_wen, rob_rf_wen(i))
-        rob_stale_p_rd(i) := Mux(is_this_alloc, io.enq.bits.stale_p_rd, rob_stale_p_rd(i))
-
-        rob_mem_cmd(i) := Mux(is_this_alloc, io.enq.bits.mem_cmd, rob_mem_cmd(i))
-    }
-
-    io.flush_pipeline := has_exception
-
-    val will_free_preg = do_commit && rob_rf_wen(head) && (rob_stale_p_rd(head) =/= 0.U)
-  
-    io.commit_free.valid := will_free_preg
-    io.commit_free.bits  := Mux(will_free_preg, rob_stale_p_rd(head), 0.U)
-
-
-    val is_committing_store = do_commit && (rob_mem_cmd(head) === MC_W.U)
-
-    io.commit_store := is_committing_store
-    */
 }   

@@ -104,5 +104,5 @@ with MyCPU.common.constants.RISCVConsts
     when (io.req.valid) { // 只要有请求进来就打印
     printf("[ALU] PC: 0x%x | OP1: %d | OP2: %d | Result: %d | is_mispredict: %b\n", 
       uop.pc, op1, op2, alu_out_final, is_mispredict)
-  }                        
+  }                     
 }

@@ -11,26 +11,35 @@ import MyCPU.common._
 class MockIMem(program: Seq[Long])(implicit p: CoreParams) extends Module {
   val io = IO(Flipped(new SimpleMemIO))
   
-  // 将传入的程序转换为硬件 ROM
-  val rom = VecInit(program.map(_.U(32.W)))
+  // ========================================================
+  // 💡 改进：将程序用 0 (NOP/非法指令) 填充至 256 条指令 (1KB 容量)
+  // 保证它是 2 的整数次幂，彻底消除 Chisel 动态索引截断问题
+  // ========================================================
+  val rom_size = 256
+  val padded_program = program.padTo(rom_size, 0L) // 不足256个的用 0L 补齐
+  val rom = VecInit(padded_program.map(_.U(32.W)))
 
   io.req.ready := true.B
 
-  // 模拟 1 周期延迟的 SRAM
   val req_valid = RegNext(io.req.fire, false.B)
   val req_addr  = RegNext(io.req.bits.addr)
   
-  // 假设基地址是 0x8000_0000，每条指令 4 字节
-  // 算出数组索引
   val word_idx = (req_addr - "h8000_0000".U) >> 2
 
   io.resp.valid := req_valid
   
-  val inst0 = Mux(word_idx < program.length.U, rom(word_idx), 0.U(32.W))
-  // 注意数组越界保护
-  val inst1 = Mux((word_idx + 1.U) < program.length.U, rom(word_idx + 1.U), 0.U(32.W))
-  // 防止越界读取导致报错
-  io.resp.bits.data := Cat(inst1, inst0)
+  // 💡 改进：为了极致的安全，强制给 word_idx 套上掩码，防止严重越界
+  // 因为 rom_size = 256，需要 8 bit 索引 (0~255)
+  val safe_idx0 = word_idx(7, 0)
+  val safe_idx1 = word_idx(7, 0) + 1.U
+  
+  // 此时不再需要繁琐的 program.length.U 判断了
+  val inst0 = rom(safe_idx0)
+  val inst1 = rom(safe_idx1)
+  
+  // 如果原始地址算出来的 index 超出了 255，强制返回 0
+  val out_of_bounds = word_idx >= rom_size.U
+  io.resp.bits.data := Mux(out_of_bounds, 0.U(64.W), Cat(inst1, inst0))
 }
 
 // ============================================================
@@ -69,6 +78,17 @@ with MyCPU.common.constants.RISCVConsts
   // 读操作
   io.dmem.resp.valid := req_valid && req_cmd === MC_R.U
   io.dmem.resp.bits.data := ram(word_idx)
+
+  // 在 MockDMem 的底部加上这些打印：
+  
+  when(io.dmem.req.fire) {
+    printf(p"[MockDMem-REQ] CMD: ${io.dmem.req.bits.cmd}, ADDR: 0x${Hexadecimal(io.dmem.req.bits.addr)}, DATA: ${io.dmem.req.bits.data}\n")
+  }
+
+  when(req_valid && req_cmd === MC_W.U) {
+    ram(word_idx) := req_data
+    printf(p"[MockDMem-WRITE] Success! Wrote ${req_data} to slot ${word_idx}\n")
+  }
 }
 
 // ============================================================

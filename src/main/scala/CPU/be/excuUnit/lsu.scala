@@ -75,6 +75,23 @@ with MyCPU.common.constants.RISCVConsts
   val sb_head = store_buffer.io.deq.bits
   store_buffer.io.deq.ready := io.commit_store && io.dmem.req.ready
 
+
+  //debug
+
+   when(store_buffer.io.enq.fire || store_buffer.io.deq.fire || store_buffer.io.count > 0.U) {
+    printf(p"[SB-STATUS] 📦 当前 SB 元素个数: ${store_buffer.io.count}/4 | 满: ${!store_buffer.io.enq.ready} | 空: ${!store_buffer.io.deq.valid}\n")
+  }
+
+  // 2. 监控“幽灵指令”的潜入 (Push / Enqueue)
+  when(store_buffer.io.enq.fire) {
+    printf(p"  ---> [SB-PUSH] 🔴 收到 Store 暂存请求! 入队地址: 0x${Hexadecimal(store_buffer.io.enq.bits.addr)}, 数据: ${store_buffer.io.enq.bits.data}\n")
+  }
+
+  // 3. 监控真实的内存写入 (Pop / Dequeue)
+  when(store_buffer.io.deq.fire) {
+    printf(p"  <--- [SB-POP]  🟢 ROB 允许提交! 正在写入物理内存! 出队地址: 0x${Hexadecimal(store_buffer.io.deq.bits.addr)}\n")
+  }
+
   // =========================================================
   // 3. Load 状态机
   // =========================================================
@@ -159,14 +176,5 @@ with MyCPU.common.constants.RISCVConsts
     io.cdb.bits.data    := load_data_final
     io.cdb.bits.exc     := load_uop_reg.exception
   }
-
-    when (io.req.fire && is_store) {
-    printf("[LSU-STORE] PC: 0x%x | Addr: 0x%x | Data: %d\n", 
-      uop.pc, effective_addr, store_data_aligned)
-  }
   
-  when (io.dmem.req.fire && io.dmem.req.bits.cmd === MC_W.U) {
-    printf("[MEM-WRITE] Actually writing to Memory! Addr: 0x%x | Data: %d\n", 
-      io.dmem.req.bits.addr, io.dmem.req.bits.data)
-  }
 }

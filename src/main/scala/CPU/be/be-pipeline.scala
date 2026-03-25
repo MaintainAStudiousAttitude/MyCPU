@@ -43,7 +43,24 @@ with MyCPU.common.constants.RISCVConsts
 
   rename.io.enq.valid := decode.io.deq.valid
   decode.io.deq.ready := rename.io.enq.ready
-  rename.io.enq.bits  := decode.io.deq.bits // 单发射拆包
+  val dec_uop0 = decode.io.deq.bits(0)
+  val dec_uop1 = decode.io.deq.bits(1)
+
+  val is_branch_0 = dec_uop0.valid && (dec_uop0.is_br || dec_uop0.is_jal || dec_uop0.is_jalr)
+
+  val safe_uop1 = WireInit(dec_uop1)
+
+  when (is_branch_0) {
+    safe_uop1.valid      := false.B // 标记为无效，Issue Queue 会忽略它，ROB 会让它瞬间 Complete
+    safe_uop1.rf_wen     := false.B // 极其关键：阻止 Rename 消耗 FreeList 分配物理寄存器！
+    safe_uop1.l_rd       := 0.U     // 双重保险：目标寄存器置零
+    safe_uop1.l_rs1      := 0.U
+    safe_uop1.l_rs2      := 0.U
+    safe_uop1.mem_cmd    := 0.U     // 阻止 LSU 误将其当作 Store 塞入 Store Buffer
+    safe_uop1.exception  := false.B // 确保它不会触发假异常
+  }
+  rename.io.enq.bits(0) := dec_uop0
+  rename.io.enq.bits(1) := safe_uop1// 单发射拆包
 
   // --------------------------------------------------------
   // C.[新增: 分支停顿] Dispatch (Rename -> Issue & ROB)
@@ -51,40 +68,39 @@ with MyCPU.common.constants.RISCVConsts
   val branch_in_flight = RegInit(false.B)
 
   // 提取即将进入后端的微指令
-  val rename_uop = rename.io.deq.bits
-  val is_branch_inst = rename_uop.is_br || rename_uop.is_jal || rename_uop.is_jalr
+  val ren_uop0 = rename.io.deq.bits(0)
+  val ren_uop1 = rename.io.deq.bits(1)
 
-  // 握手逻辑：只有 ROB、IssueQueue 都有空位，且【没有未决的分支指令】时，才允许分发！
+  val has_branch_0 = ren_uop0.valid && (ren_uop0.is_br || ren_uop0.is_jal || ren_uop0.is_jalr)
+  val has_branch_1 = ren_uop1.valid && (ren_uop1.is_br || ren_uop1.is_jal || ren_uop1.is_jalr)
+  val has_branch = has_branch_0 || has_branch_1
+
   val dispatch_ready = rob.io.enq.ready && issue.io.enq.ready && !branch_in_flight
-  
+
   rename.io.deq.ready := dispatch_ready
   val dispatch_fire = rename.io.deq.valid && dispatch_ready
-
-  // 连入 ROB
+  
   rob.io.enq.valid := dispatch_fire
-  rob.io.enq.bits  := rename.io.deq.bits
-
-  // 连入 Issue Queue
   issue.io.enq.valid := dispatch_fire
-  issue.io.enq.bits  := rename.io.deq.bits
-  issue.io.enq.bits.rob_idx := rob.io.rob_idx_alloc // 拼装 ROB ID
 
-  // 状态机更新：控制闸门起落
+  for (w <- 0 until p.decodeWidth){
+    rob.io.enq.bits(w) := rename.io.deq.bits(w)
+
+    issue.io.enq.bits(w) := rename.io.deq.bits(w)
+    issue.io.enq.bits(w).rob_idx := rob.io.rob_idx_alloc(w)
+  }
+
   when (rob.io.flush_pipeline) {
     branch_in_flight := false.B // 遇到全局异常冲刷，解除锁定
   } .elsewhen (alu.io.br_resolved) {
     branch_in_flight := false.B // ALU 算完分支了，解除锁定！
-  } .elsewhen (dispatch_fire && is_branch_inst) {
+  } .elsewhen (dispatch_fire && has_branch) {
     branch_in_flight := true.B  // 分支指令进入了后端，拉下闸门！
   }
 
-  // --------------------------------------------------------
-  // D. Issue -> RegRead -> PRF
-  // --------------------------------------------------------
   regread.io.iss_alu <> issue.io.iss_alu
   regread.io.iss_lsu <> issue.io.iss_lsu 
-
-  // PRF 读端口连线 (ALU 2R, LSU 2R)
+  
   prf.io.alu_req_rs1 := regread.io.prf_alu_req_rs1
   prf.io.alu_req_rs2 := regread.io.prf_alu_req_rs2
   regread.io.prf_alu_resp_rs1 := prf.io.alu_resp_rs1
@@ -94,16 +110,11 @@ with MyCPU.common.constants.RISCVConsts
   prf.io.lsu_req_rs2 := regread.io.prf_lsu_req_rs2
   regread.io.prf_lsu_resp_rs1 := prf.io.lsu_resp_rs1
   regread.io.prf_lsu_resp_rs2 := prf.io.lsu_resp_rs2
+  
 
-  // --------------------------------------------------------
-  // E. Execute (RegRead -> ALU & LSU)
-  // --------------------------------------------------------
   alu.io.req <> regread.io.exe_alu
   lsu.io.req <> regread.io.exe_lsu
 
-  // --------------------------------------------------------
-  // F. 外部内存接口 (LSU -> D-Cache/MockRAM)
-  // --------------------------------------------------------
   io.dmem.req.valid      := lsu.io.dmem.req.valid
   io.dmem.req.bits       := lsu.io.dmem.req.bits
   lsu.io.dmem.req.ready  := io.dmem.req.ready
@@ -111,13 +122,9 @@ with MyCPU.common.constants.RISCVConsts
   lsu.io.dmem.resp.valid := io.dmem.resp.valid
   lsu.io.dmem.resp.bits  := io.dmem.resp.bits
 
-  // --------------------------------------------------------
-  // G. Writeback (ALU/LSU -> CDB 广播网)
-  // --------------------------------------------------------
   cdb(0) := alu.io.cdb
   cdb(1) := lsu.io.cdb 
 
-  // 广播写回 PRF
   prf.io.wb_alu_valid := cdb(0).valid
   prf.io.wb_alu_pdst  := cdb(0).bits.p_rd
   prf.io.wb_alu_data  := cdb(0).bits.data
@@ -125,27 +132,18 @@ with MyCPU.common.constants.RISCVConsts
   prf.io.wb_lsu_valid := cdb(1).valid
   prf.io.wb_lsu_pdst  := cdb(1).bits.p_rd
   prf.io.wb_lsu_data  := cdb(1).bits.data
-
-  // 扇出到各个监控模块
+  
   issue.io.cdb   := cdb
   regread.io.cdb := cdb
   rob.io.cdb     := cdb
-  rename.io.cdb  := cdb  // 你的 Rename 现已支持 Vec(2) 的 CDB 监听
-
-  // --------------------------------------------------------
-  // H. Retire & Flush 协同机制
-  // --------------------------------------------------------
-  // ROB 通知 Rename 释放物理寄存器
-  rename.io.commit_free := rob.io.commit_free
-
-  // ROB 通知 LSU 真正写入外部内存 (极度关键)
-  lsu.io.commit_store   := rob.io.commit_store 
-
-  // 冲刷逻辑: 因为错误路径的指令被挡在闸门外了，IssueQueue 里现在都是安全的。
-  // 所以只有在 ROB 发生真实 Exception (比如非法指令) 时，才做流水线 Flush。
-  issue.io.flush := rob.io.flush_pipeline 
+  rename.io.cdb  := cdb
   
-  // 纠错逻辑: 告诉前端重新取指
-  io.redirect_valid := alu.io.br_redirect
-  io.redirect_pc    := alu.io.br_redirect_pc
+  rename.io.commit_free := rob.io.commit_free
+  lsu.io.commit_store   := rob.io.commit_store(0) || rob.io.commit_store(1)
+
+  issue.io.flush := rob.io.flush_pipeline 
+
+  io.redirect_valid := alu.io.br_redirect || rob.io.flush_pipeline
+  io.redirect_pc    := Mux(alu.io.br_redirect, alu.io.br_redirect_pc, 0.U)
+
 }

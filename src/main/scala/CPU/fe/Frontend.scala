@@ -64,7 +64,7 @@ with MyCPU.common.constants.RISCVConsts
     fq.io.enq.bits(0).inst := inst0
     fq.io.enq.bits(0).valid := !is_unaligned
 
-    fq.io.enq.bits(1).pc := if2_pc_reg & (~7.U(p.xLen.W)) + 4.U
+    fq.io.enq.bits(1).pc := (if2_pc_reg & (~7.U(p.xLen.W))) + 4.U
     fq.io.enq.bits(1).inst := inst1
     fq.io.enq.bits(1).valid := true.B
 

@@ -158,28 +158,6 @@ with MyCPU.common.constants.RISCVConsts
       // 恢复下游通畅
       c.io.iss_alu.ready.poke(true.B)
       c.io.iss_lsu.ready.poke(true.B)
-
-         println(s"\n==========================================")
-      println(s"🔍 DUAL ISSUE DIAGNOSTICS REPORT")
-      println(s"==========================================")
-      println(s"[1] Slot Status:")
-      println(s"    Slot 0: Valid=${c.io.dbg_slot0_valid.peek().litToBoolean}, Ready=${c.io.dbg_slot0_ready.peek().litToBoolean}, FU=${c.io.dbg_slot0_fu.peek().litValue}")
-      println(s"    Slot 1: Valid=${c.io.dbg_slot1_valid.peek().litToBoolean}, Ready=${c.io.dbg_slot1_ready.peek().litToBoolean}, FU=${c.io.dbg_slot1_fu.peek().litValue}")
-      
-      println(s"\n[2] Type Classification:")
-      println(s"    Slot 0 is ALU? = ${c.io.dbg_slot0_is_alu.peek().litToBoolean}")
-      println(s"    Slot 0 is LSU? = ${c.io.dbg_slot0_is_lsu.peek().litToBoolean}  <-- 如果这是true，你条件写错了")
-      println(s"    Slot 1 is ALU? = ${c.io.dbg_slot1_is_alu.peek().litToBoolean}")
-      println(s"    Slot 1 is LSU? = ${c.io.dbg_slot1_is_lsu.peek().litToBoolean}")
-      
-      println(s"\n[3] Arbiter Requests (The Inputs to PriorityEncoder):")
-      println(s"    ALU Reqs:[Slot0: ${c.io.dbg_alu_req_0.peek().litToBoolean}, Slot1: ${c.io.dbg_alu_req_1.peek().litToBoolean}]")
-      println(s"    LSU Reqs:[Slot0: ${c.io.dbg_lsu_req_0.peek().litToBoolean}, Slot1: ${c.io.dbg_lsu_req_1.peek().litToBoolean}]  <-- 如果Slot0是true，你连错线了")
-      
-      println(s"\n[4] Arbiter Outputs:")
-      println(s"    ALU Picked Index: ${c.io.dbg_sel_alu_idx.peek().litValue} (Can Issue: ${c.io.dbg_can_iss_alu.peek().litToBoolean})")
-      println(s"    LSU Picked Index: ${c.io.dbg_sel_lsu_idx.peek().litValue} (Can Issue: ${c.io.dbg_can_iss_lsu.peek().litToBoolean})")
-      println(s"==========================================\n")
       // 验证两条流水线同时开工！
       println("  -> Checking simultaneous issue...")
       c.io.iss_alu.valid.expect(true.B)
