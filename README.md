@@ -1,112 +1,109 @@
-Chisel Project Template
-=======================
+# Baby R10k — RV64I 双发射乱序超标量处理器
 
-You've done the [Chisel Bootcamp](https://github.com/freechipsproject/chisel-bootcamp), and now you
-are ready to start your own Chisel project.  The following procedure should get you started
-with a clean running [Chisel3](https://www.chisel-lang.org/) project.
+基于 Chisel/Scala 独立实现的 RISC-V 64位双发射乱序超标量处理器核，微架构参考 MIPS R10000 与 Berkeley BOOM 设计。
 
-## Make your own Chisel3 project
+---
 
-### Dependencies
+## 项目概述
 
-#### JDK 11 or newer
+本项目从零开始独立设计并实现了一款面向 FPGA（PYNQ-Z2，xc7z020）的乱序超标量处理器原型。核心目标是完整实现乱序执行的三个根基机制：**显式寄存器重命名、数据驱动的动态调度、精确异常与顺序提交**。
 
-We recommend using Java 11 or later LTS releases. While Chisel itself works with Java 8, our preferred build tool Mill requires Java 11. You can install the JDK as your operating system recommends, or use the prebuilt binaries from [Adoptium](https://adoptium.net/) (formerly AdoptOpenJDK).
+---
 
-#### SBT or mill
+## 核心微架构特性
 
-SBT is the most common build tool in the Scala community. You can download it [here](https://www.scala-sbt.org/download.html).
-Mill is another Scala/Java build tool preferred by Chisel's developers.
-This repository includes a bootstrap script `./mill` so that no installation is necessary.
-You can read more about Mill on its website: https://mill-build.org.
+### 寄存器重命名（Register Renaming）
+- 基于 RAT（寄存器别名表）+ Bit-Vector FreeList 实现显式物理寄存器重命名
+- 通过定制旁路网络解决双发射组内 RAW/WAW 冒险，支持 0 周期级联重命名
+- 采用 stale_p_rd 机制在 Commit 阶段精确回收物理寄存器
 
-#### Verilator
+### 动态乱序发射（Out-of-Order Issue）
+- 基于双路 CDB（公共数据总线）的动态唤醒网络，支持背靠背执行
+- ALU 与 LSU 独立发射队列，双路并行仲裁器，最大化执行单元利用率
+- 入队时检查 CDB 广播状态，避免操作数就绪指令入队死锁
 
-The test with `svsim` needs Verilator installed.
-See Verilator installation instructions [here](https://verilator.org/guide/latest/install.html).
+### 精确异常与顺序提交（Precise Exception）
+- 双路 Commit 的 ROB（重排序缓冲区），强制顺序提交保证精确异常语义
+- 支持分支跳转与异常两类 Flush，分别在 ALU 执行阶段与 ROB Commit 阶段触发
+- ROB Walk 机制逐条回滚 RAT 状态与 FreeList，精确恢复架构状态
 
-### How to get started
+### 访存子系统（Memory Subsystem）
+- 读写分离访存管线，Store Buffer 机制保证乱序执行下内存写入的顺序一致性
+- 以 TileLink 总线 ACK 信号驱动 Store 出队，确保写回完成后才释放资源
+- 采用保守 Load 策略，Store Buffer 非空时阻止 Load 发射，规避内存地址别名消解的硬件开销
 
-#### Create a repository from the template
+---
 
-This repository is a Github template. You can create your own repository from it by clicking the green `Use this template` in the top right.
-Please leave `Include all branches` **unchecked**; checking it will pollute the history of your new repository.
-For more information, see ["Creating a repository from a template"](https://docs.github.com/en/free-pro-team@latest/github/creating-cloning-and-archiving-repositories/creating-a-repository-from-a-template).
+## 技术栈
 
-#### Wait for the template cleanup workflow to complete
+| 类别 | 工具 |
+|---|---|
+| 硬件描述语言 | Chisel/Scala |
+| 仿真框架 | Verilator + ChiselTest |
+| 构建系统 | Mill |
+| 综合布线 | Vivado 2024.1 |
+| 目标器件 | Xilinx xc7z020（PYNQ-Z2） |
+| 指令集架构 | RISC-V RV64I |
 
-After using the template to create your own blank project, please wait a minute or two for the `Template cleanup` workflow to run which will removes some template-specific stuff from the repository (like the LICENSE).
-Refresh the repository page in your browser until you see a 2nd commit by `actions-user` titled `Template cleanup`.
+---
 
+## FPGA 综合结果
 
-#### Clone your repository
+目标器件：**Xilinx xc7z020clg400-1**
 
-Once you have created a repository from this template and the `Template cleanup` workflow has completed, you can click the green button to get a link for cloning your repository.
-Note that it is easiest to push to a repository if you set up SSH with Github, please see the [related documentation](https://docs.github.com/en/free-pro-team@latest/github/authenticating-to-github/connecting-to-github-with-ssh). SSH is required for pushing to a Github repository when using two-factor authentication.
+| 指标 | 数值 |
+|---|---|
+| 时钟频率 | **67 MHz** |
+| Slice LUT 占用 | 11866 / 53200（**22.3%**） |
+| Slice 占用 | 4611 / 13300（**34.7%**） |
+| Slice Register 占用 | 5820 / 106400（**5.47%**） |
+| Block RAM | 0%（全部使用 Distributed RAM） |
 
-```sh
-git clone git@github.com:MaintainAStudiousAttitude/Chisel_template.git
-cd Chisel_template
-```
+### 时序分析
 
-#### Set project organization and name in build.sbt
+| 指标 | 数值 |
+|---|---|
+| 时钟约束 | 15ns（67MHz） |
+| WNS | 0.175ns（时序收敛） |
+| 关键路径总延迟 | 14.457ns |
+| 逻辑延迟 | 2.199ns（15.2%） |
+| 布线延迟 | 12.258ns（**84.8%**） |
 
-The cleanup workflow will have attempted to provide sensible defaults for `ThisBuild / organization` and `name` in the `build.sbt`.
-Feel free to use your text editor of choice to change them as you see fit.
+### 关键路径分析
 
-#### Clean up the README.md file
+关键路径位于 **Rename-to-Dispatch 跨模块组合逻辑链**，从前端取指队列出队指针出发，经过 Decode、RAT 查找、FreeList 判断，到达 Issue Queue 槽位写入，跨越三个主要模块。
 
-Again, use you editor of choice to make the README specific to your project.
+主要瓶颈：`slot_uop_valid` 信号扇出达 **137**，单条网线布线延迟 2.690ns，占整条路径的 18.6%。
 
-#### Add a LICENSE file
+**优化方向**：
+- 在 Rename 与 Dispatch 之间插入流水线寄存器，切断跨模块组合逻辑链
+- 对高扇出信号进行寄存器复制
+- 将寄存器文件迁移至 Block RAM，释放 Distributed RAM 资源
 
-It is important to have a LICENSE for open source (or closed source) code.
-This template repository has the Unlicense in order to allow users to add any license they want to derivative code.
-The Unlicense is stripped when creating a repository from this template so that users do not accidentally unlicense their own work.
+---
 
-For more information about a license, check out the [Github Docs](https://docs.github.com/en/free-pro-team@latest/github/building-a-strong-community/adding-a-license-to-a-repository).
+## 已知局限性
 
-#### Commit your changes
-```sh
-git commit -m 'Starting Chisel_template'
-git push origin main
-```
+- 指令集：当前实现 RV64I，尚未支持 M 扩展（硬件乘除法器）和 C 扩展
+- 无 Cache：直接访问片上 BRAM，访存延迟固定
+- 无特权架构：尚未实现 CSR 和 M/U 模式切换，不能运行操作系统
+- 无分支预测器：采用保守顺序取指策略，跳转确认后触发 Flush
+- 验证：通过汇编程序和单模块单元测试验证基本正确性，尚未接入 DiffTest 和标准测试集
 
-### Did it work?
+---
 
-You should now have a working Chisel3 project.
+## 下一步计划
 
-You can run the included test with:
-```sh
-sbt test
-```
+- 补全 RISC-V 特权架构（CSR、M/U 模式切换）
+- 接入 DiffTest 框架与 riscv-tests 标准测试集
+- 实现 ICache/DCache
+- 实现 BTB + GShare 分支预测器
+- 对关键路径进行流水线切割，目标主频 100MHz+
 
-Alternatively, if you use Mill:
-```sh
-./mill Chisel_template.test
-```
+---
 
-You should see a whole bunch of output that ends with something like the following lines
-```
-[info] Tests: succeeded 1, failed 0, canceled 0, ignored 0, pending 0
-[info] All tests passed.
-[success] Total time: 5 s, completed Dec 16, 2020 12:18:44 PM
-```
-If you see the above then...
+## 参考资料
 
-### It worked!
-
-You are ready to go. We have a few recommended practices and things to do.
-
-* Use packages and following conventions for [structure](https://www.scala-sbt.org/1.x/docs/Directories.html) and [naming](http://docs.scala-lang.org/style/naming-conventions.html)
-* Package names should be clearly reflected in the testing hierarchy
-* Build tests for all your work
-* Read more about testing in SBT in the [SBT docs](https://www.scala-sbt.org/1.x/docs/Testing.html)
-* This template includes a [test dependency](https://www.scala-sbt.org/1.x/docs/Library-Dependencies.html#Per-configuration+dependencies) on [ScalaTest](https://www.scalatest.org/). This, coupled with `svsim` (included with Chisel) and `verilator`, are a starting point for testing Chisel generators.
-  * You can remove this dependency in the build.sbt file if you want to
-* Change the name of your project in the build.sbt file
-* Change your README.md
-
-## Problems? Questions?
-
-Check out the [Chisel Users Community](https://www.chisel-lang.org/community.html) page for links to get in contact!
+- MIPS R10000 微架构论文：*The MIPS R10000 Superscalar Microprocessor*
+- Berkeley BOOM：[https://github.com/riscv-boom/riscv-boom](https://github.com/riscv-boom/riscv-boom)
+- RISC-V ISA 规范：[https://riscv.org/specifications/](https://riscv.org/specifications/)
