@@ -19,6 +19,9 @@ with MyCPU.common.constants.ScalaOpConsts
 
     val flush = Input(Bool())
 
+    val flush_mispredict = Input(Bool())
+    val mispredict_rob_idx = Input(UInt(p.robBits.W))
+    val rob_head_idx = Input(UInt(p.robBits.W))
 
 }
 
@@ -40,6 +43,14 @@ with MyCPU.common.constants.RISCVConsts
 
     val slot_ready = Wire(Vec(p.numIssueEntries, Bool()))
 
+    def is_Younger(now_idx : UInt, target_idx : UInt, head : UInt) : Bool = 
+    {
+        val now_age = now_idx - head
+        val target_age = target_idx - head
+        now_age > target_age
+    }
+
+
     for(i <- 0 until p.numIssueEntries){
         val uop = slot_uop(i)
 
@@ -54,7 +65,10 @@ with MyCPU.common.constants.RISCVConsts
         next_rs1_ready(i) := slot_rs1_ready(i) || wakeup_rs1
         next_rs2_ready(i) := slot_rs2_ready(i) || wakeup_rs2   
 
-        slot_ready(i) := slot_valid(i) && next_rs1_ready(i) && next_rs2_ready(i)
+        //bye bye every ghost "shaking hand"
+        val is_ghost_inct = io.flush_mispredict && is_Younger(uop.rob_idx, io.mispredict_rob_idx, io.rob_head_idx)
+        val real_valid = slot_valid(i) && !is_ghost_inct
+        slot_ready(i) := real_valid && next_rs1_ready(i) && next_rs2_ready(i)
     }
 
 
@@ -100,9 +114,10 @@ with MyCPU.common.constants.RISCVConsts
     val need_2 = uop0_valid && uop1_valid
     val need_1 = uop0_valid ^ uop1_valid
 
+
     val has_space = Mux(need_2, has_2_free, Mux(need_1, has_1_free, true.B))
-    io.enq.ready := has_space
-    val do_alloc = io.enq.fire
+    io.enq.ready := has_space && !io.flush_mispredict
+    val do_alloc = io.enq.fire && !io.flush_mispredict
 
     val do_iss_alu = io.iss_alu.ready && can_iss_alu
     val do_iss_lsu = io.iss_lsu.ready && can_iss_lsu
@@ -128,10 +143,13 @@ with MyCPU.common.constants.RISCVConsts
       val is_this_iss_lsu = do_iss_lsu && (sel_lsu_idx === i_u)
       val is_this_issued = is_this_iss_alu || is_this_iss_lsu
 
+      val is_ghost = io.flush_mispredict && is_Younger(slot_uop(i).rob_idx, io.mispredict_rob_idx, io.rob_head_idx)
+
+
       val alloc_valid_val = Mux(is_alloc_0 && (alloc_idx_0 === i.U), uop0_valid,
                                                                       Mux(is_alloc_1 && (Mux(uop0_valid, alloc_idx_1, alloc_idx_0) === i.U), uop1_valid, false.B))
       //change alloc_valid_val to true.B
-      slot_valid(i) := Mux(io.flush, false.B,
+      slot_valid(i) := Mux(io.flush || is_ghost, false.B,
                                     Mux(is_this_issued, false.B, 
                                                         Mux(is_this_alloc, true.B, 
                                                                           slot_valid(i))))

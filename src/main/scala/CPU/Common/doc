@@ -54,3 +54,93 @@ MEM_SIGNED (Bool):
 LEGAL, FU_TYPE, ALU_OP, OP1_SEL, OP2_SEL, RF_WEN, USE_RS1, USE_RS2, MEM_CMD, MEM_SIZE, MEM_SIGNED, IS_W
 
 package_name = MyCPU
+
+  使用方法                                                                                                                                                                                       
+          
+  安装 spike（尚未安装）：
+  # Ubuntu                                                                                                                                                                                         
+  sudo apt install device-tree-compiler
+  git clone https://github.com/riscv-software-src/riscv-isa-sim                                                                                                                                    
+  cd riscv-isa-sim && mkdir build && cd build                                                                                                                                                    
+  ../configure --prefix=/usr/local                                                                                                                                                                 
+  make -j$(nproc) && sudo make install
+                                                                                                                                                                                                   
+  手动分步运行：                                                                                                                                                                                 
+  # 1. 生成 spike 参考日志                                                                                                                                                                         
+  ./scripts/gen_spike_log.sh cpu_test/dhrystone.elf spike_commit.log                                                                                                                               
+                                                                    
+  # 2. 运行仿真并重定向 stdout（COMMIT 行在 stdout 中）                                                                                                                                            
+  ./mill MyCPU.test.testOnly MyCPU.BenchmarkSpec 2>/dev/null | \                                                                                                                                   
+      python3 scripts/normalize_dut_log.py /dev/stdin dut_commit.log                                                                                                                               
+                                                                                                                                                                                                   
+  # 3. 对比                                                                                                                                                                                      
+  python3 scripts/difftest.py dut_commit.log spike_commit.log                                                                                                                                      
+                                                                                                                                                                                                 
+  一键运行：                                                                                                                                                                                       
+  ./scripts/run_difftest.sh cpu_test/dhrystone.elf    
+
+
+  ● 脚本工作正常。整理一下所有改动的完整说明：                                                                                                                                                       
+                                                                                          
+  ---                                                                                                                                                                                              
+  实现总结                                                                                                                                                                                         
+                                                                                                                                                                                                   
+  架构：三段式日志对比                                                                                                                                                                             
+                                                                                                                                                                                                   
+  ELF 程序                                                                                                                                                                                         
+    ├─▶ [spike]  gen_spike_log.sh         →  spike_commit.log (参考)                                                                                                                               
+    └─▶ [DUT]   Chisel仿真 printf输出      →  dut_commit.log  (被测)                                                                                                                               
+                                                     ↓                                                                                                                                             
+                                            difftest.py  (逐条对比)                                                                                                                                
+                                                                                                                                                                                                   
+  ---                                                                                                                                                                                              
+  改动一：rob.scala（核心硬件侧）                                                                                                                                                                  
+                                                                                                                                                                                                   
+  增加两个存储数组：                                                                                                                                                                               
+  - rob_pc(i) — dispatch 时从 MicroOp 捕获 PC                                                                                                                                                      
+  - rob_result(i) — CDB writeback 时捕获计算结果                                                                                                                                                   
+                                                                                                                                                                                                   
+  commit 时输出标准格式 log（通过 Chisel printf，仿真 stdout）：                                                                                                                                   
+  COMMIT pc=0x0000000080000000 inst=0x000101b7 rd=3 wdata=0x10000 rf_wen=1                                                                                                                         
+                                                                                                                                                                                                   
+  ---                                                                                                                                                                                              
+  改动二：新增 scripts/ 目录                                                                                                                                                                       
+                                                                                                                                                                                                   
+  ┌────────────────────────┬────────────────────────────────────────────────────────────────┐                                                                                                      
+  │          文件          │                              作用                              │                                                                                                      
+  ├────────────────────────┼────────────────────────────────────────────────────────────────┤                                                                                                      
+  │ gen_spike_log.sh       │ 调用 spike --log-commits 生成参考 log                          │                                                                                                      
+  ├────────────────────────┼────────────────────────────────────────────────────────────────┤                                                                                                      
+  │ normalize_spike_log.py │ 解析 spike 的 raw log，统一格式（支持新旧两种 spike 输出格式） │                                                                                                      
+  ├────────────────────────┼────────────────────────────────────────────────────────────────┤                                                                                                      
+  │ normalize_dut_log.py   │ 从仿真 stdout 中提取 COMMIT 行并规范化格式                     │                                                                                                      
+  ├────────────────────────┼────────────────────────────────────────────────────────────────┤                                                                                                      
+  │ difftest.py            │ 主对比器，逐指令比较 PC、指令编码、寄存器写入值                │                                                                                                    
+  ├────────────────────────┼────────────────────────────────────────────────────────────────┤                                                                                                      
+  │ run_difftest.sh        │ 一键运行全流程                                                 │                                                                                                    
+  └────────────────────────┴────────────────────────────────────────────────────────────────┘                                                                                                      
+                                                                                                                                                                                                 
+  ---                                                                                                                                                                                              
+  使用方法                                                                                                                                                                                       
+          
+  安装 spike（尚未安装）：
+  # Ubuntu                                                                                                                                                                                         
+  sudo apt install device-tree-compiler
+  git clone https://github.com/riscv-software-src/riscv-isa-sim                                                                                                                                    
+  cd riscv-isa-sim && mkdir build && cd build                                                                                                                                                    
+  ../configure --prefix=/usr/local                                                                                                                                                                 
+  make -j$(nproc) && sudo make install
+                                                                                                                                                                                                   
+  手动分步运行：                                                                                                                                                                                 
+  # 1. 生成 spike 参考日志                                                                                                                                                                         
+  ./scripts/gen_spike_log.sh cpu_test/dhrystone.elf spike_commit.log                                                                                                                               
+                                                                    
+  # 2. 运行仿真并重定向 stdout（COMMIT 行在 stdout 中）                                                                                                                                            
+  ./mill MyCPU.test.testOnly MyCPU.BenchmarkSpec 2>/dev/null | \                                                                                                                                   
+      python3 scripts/normalize_dut_log.py /dev/stdin dut_commit.log                                                                                                                               
+                                                                                                                                                                                                   
+  # 3. 对比                                                                                                                                                                                      
+  python3 scripts/difftest.py dut_commit.log spike_commit.log                                                                                                                                      
+                                                                                                                                                                                                 
+  一键运行：                                                                                                                                                                                       
+  ./scripts/run_difftest.sh cpu_test/dhrystone.elf    

@@ -19,6 +19,8 @@ extends Bundle
     val br_redirect_rob_id = Output(UInt(p.robBits.W))
 
     val br_resolved       = Output(Bool()) 
+
+    val br_res = Output(Valid(new BranchResolution))
 }
 
 class ALU_Unit(implicit p: CoreParams)
@@ -79,8 +81,8 @@ with MyCPU.common.constants.RISCVConsts
         B_JR.U  -> true.B  // JALR 无条件跳
     ))
 
-    val target_pc = Mux(uop.br_type === B_JR.U, 
-                        (rs1_data + uop.imm) & !1.U(p.xLen.W),
+    val target_pc = Mux(uop.br_type === B_JR.U,
+                        (rs1_data + uop.imm) & ~(1.U(p.xLen.W)),
                         uop.pc + uop.imm)
 
     val is_mispredict = uop.is_br && is_taken
@@ -91,6 +93,10 @@ with MyCPU.common.constants.RISCVConsts
     io.br_redirect_rob_id := uop.rob_idx
 
     io.br_resolved        := req_valid && (uop.is_br || is_jump)
+
+    io.br_res.valid := req_valid && (uop.is_br || is_jump)
+    io.br_res.bits.mispredicted := (is_mispredict || is_jump)
+    io.br_res.bits.rob_idx := uop.rob_idx
 
     io.cdb.valid := req_valid
     io.cdb.bits.rob_idx := uop.rob_idx

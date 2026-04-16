@@ -16,6 +16,8 @@ class MyCoreIO(implicit p: CoreParams) extends Bundle {
   // 数据内存接口 (Data Memory Interface)
   // 用于后端 LSU 读写数据
   val dmem = new SimpleMemIO
+
+  val commit_count = Output(UInt(4.W))
 }
 
 class MyCoreTop(implicit p: CoreParams) extends Module {
@@ -51,6 +53,7 @@ class MyCoreTop(implicit p: CoreParams) extends Module {
   // --------------------------------------------------------
   // 在顶层暴露一些关键信号，方便验证时观察 CPU 整体状态
   // 例如：当前正在提交的 PC，或者是否发生了 Flush
+  io.commit_count := backend.io.commit_num
   /*
   val debug_commit_pc = Output(UInt(p.xLen.W))
   debug_commit_pc := backend.io.debug_commit_pc // 假设你在 BackendTop 连出了这个信号

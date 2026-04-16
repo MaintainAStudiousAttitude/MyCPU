@@ -30,6 +30,15 @@ extends Bundle
     val rs2_data = UInt(p.xLen.W)
 }
 
+class BranchResolution(implicit p: CoreParams)
+extends Bundle
+{
+    
+    val mispredicted = Bool()
+    val rob_idx = UInt(p.robBits.W)
+
+}
+
 class MemReq(implicit p: CoreParams) 
 extends Bundle
 with MyCPU.common.constants.ScalaOpConsts {

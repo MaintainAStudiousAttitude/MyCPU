@@ -12,6 +12,7 @@ extends Bundle
 
     val redirect_valid = Output(Bool())
     val redirect_pc = Output(UInt(p.xLen.W))
+    val commit_num = Output(UInt(2.W))
 
     val dmem = new SimpleMemIO
 }   
@@ -43,13 +44,15 @@ with MyCPU.common.constants.RISCVConsts
 
   rename.io.enq.valid := decode.io.deq.valid
   decode.io.deq.ready := rename.io.enq.ready
-  val dec_uop0 = decode.io.deq.bits(0)
-  val dec_uop1 = decode.io.deq.bits(1)
+  rename.io.enq.bits := decode.io.deq.bits
 
-  val is_branch_0 = dec_uop0.valid && (dec_uop0.is_br || dec_uop0.is_jal || dec_uop0.is_jalr)
+  //val dec_uop0 = decode.io.deq.bits(0)
+  //val dec_uop1 = decode.io.deq.bits(1)
+  //val is_branch_0 = dec_uop0.valid && (dec_uop0.is_br || dec_uop0.is_jal || dec_uop0.is_jalr)
+  
 
-  val safe_uop1 = WireInit(dec_uop1)
-
+  //val safe_uop1 = WireInit(dec_uop1)
+  /*
   when (is_branch_0) {
     safe_uop1.valid      := false.B // 标记为无效，Issue Queue 会忽略它，ROB 会让它瞬间 Complete
     safe_uop1.rf_wen     := false.B // 极其关键：阻止 Rename 消耗 FreeList 分配物理寄存器！
@@ -61,11 +64,11 @@ with MyCPU.common.constants.RISCVConsts
   }
   rename.io.enq.bits(0) := dec_uop0
   rename.io.enq.bits(1) := safe_uop1// 单发射拆包
-
+  */
   // --------------------------------------------------------
   // C.[新增: 分支停顿] Dispatch (Rename -> Issue & ROB)
   // --------------------------------------------------------
-  val branch_in_flight = RegInit(false.B)
+  /*val branch_in_flight = RegInit(false.B)
 
   // 提取即将进入后端的微指令
   val ren_uop0 = rename.io.deq.bits(0)
@@ -74,8 +77,8 @@ with MyCPU.common.constants.RISCVConsts
   val has_branch_0 = ren_uop0.valid && (ren_uop0.is_br || ren_uop0.is_jal || ren_uop0.is_jalr)
   val has_branch_1 = ren_uop1.valid && (ren_uop1.is_br || ren_uop1.is_jal || ren_uop1.is_jalr)
   val has_branch = has_branch_0 || has_branch_1
-
-  val dispatch_ready = rob.io.enq.ready && issue.io.enq.ready && !branch_in_flight
+  */
+  val dispatch_ready = rob.io.enq.ready && issue.io.enq.ready
 
   rename.io.deq.ready := dispatch_ready
   val dispatch_fire = rename.io.deq.valid && dispatch_ready
@@ -89,14 +92,14 @@ with MyCPU.common.constants.RISCVConsts
     issue.io.enq.bits(w) := rename.io.deq.bits(w)
     issue.io.enq.bits(w).rob_idx := rob.io.rob_idx_alloc(w)
   }
-
+  /*
   when (rob.io.flush_pipeline) {
     branch_in_flight := false.B // 遇到全局异常冲刷，解除锁定
   } .elsewhen (alu.io.br_resolved) {
     branch_in_flight := false.B // ALU 算完分支了，解除锁定！
   } .elsewhen (dispatch_fire && has_branch) {
     branch_in_flight := true.B  // 分支指令进入了后端，拉下闸门！
-  }
+  }*/
 
   regread.io.iss_alu <> issue.io.iss_alu
   regread.io.iss_lsu <> issue.io.iss_lsu 
@@ -145,5 +148,21 @@ with MyCPU.common.constants.RISCVConsts
 
   io.redirect_valid := alu.io.br_redirect || rob.io.flush_pipeline
   io.redirect_pc    := Mux(alu.io.br_redirect, alu.io.br_redirect_pc, 0.U)
+
+  rob.io.br_res := alu.io.br_res
+
+  rename.io.rbk_active     := rob.io.rbk_active
+  rename.io.rbk_valid      := rob.io.rbk_valid
+  rename.io.rbk_l_rd       := rob.io.rbk_l_rd
+  rename.io.rbk_p_rd       := rob.io.rbk_p_rd
+  rename.io.rbk_stale_p_rd := rob.io.rbk_stale_p_rd
+
+  issue.io.flush_mispredict := alu.io.br_res.bits.mispredicted && alu.io.br_res.valid
+  issue.io.mispredict_rob_idx := alu.io.br_res.bits.rob_idx
+  issue.io.rob_head_idx := rob.io.rob_head_idx
+
+  io.commit_num := rob.io.commit_num
+
+
 
 }

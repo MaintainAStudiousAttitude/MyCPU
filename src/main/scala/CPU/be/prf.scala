@@ -53,4 +53,6 @@ class PRF(implicit p: CoreParams) extends Module {
   when(io.wb_lsu_valid && io.wb_lsu_pdst =/= 0.U) {
     regfile(io.wb_lsu_pdst) := io.wb_lsu_data
   }
+
+  
 }

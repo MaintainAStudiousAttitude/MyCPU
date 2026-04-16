@@ -16,6 +16,12 @@ extends Bundle
     val commit_free = Flipped(Vec(p.decodeWidth, Valid(UInt(p.pRegBits.W))))
 
     val cdb = Flipped(Vec(2, Valid(new CDBIO))) 
+
+    val rbk_active = Input(Bool())
+    val rbk_valid = Input(Bool())
+    val rbk_l_rd =  Input(UInt(p.lRegBits.W))
+    val rbk_p_rd = Input(UInt(p.pRegBits.W))
+    val rbk_stale_p_rd = Input(UInt(p.pRegBits.W))
 }
 
 class RenameUnit(implicit p: CoreParams)
@@ -55,9 +61,14 @@ extends Module
     val need_1 = need_alloc_0 ^ need_alloc_1 
     val can_alloc = Mux(need_2, has_2_free, Mux(need_1, has_1_free, true.B))
 
-    val fire = io.enq.valid && io.deq.ready && can_alloc
-    io.enq.ready := io.deq.ready && can_alloc
-    io.deq.valid := io.enq.valid && can_alloc
+
+    val is_walking = io.rbk_active
+
+    val fire = io.enq.valid && io.deq.ready && can_alloc && !is_walking
+
+    io.enq.ready := io.deq.ready && can_alloc && !is_walking
+    io.deq.valid := io.enq.valid && can_alloc && !is_walking
+
 
     val prs1_0_raw = rat(uop0.l_rs1)
     val prs2_0_raw = rat(uop0.l_rs2)
@@ -94,14 +105,24 @@ extends Module
     val rdy1_1 = Mux(dep1_rs1_on_0, false.B, checkReady(prs1_1_raw))
     val rdy2_1 = Mux(dep1_rs2_on_0, false.B, checkReady(prs2_1_raw))
 
-    when(fire) {
-        when(need_alloc_0){
+    when(io.rbk_valid && (io.rbk_l_rd =/= 0.U))
+    {
+        
+        rat(io.rbk_l_rd) := io.rbk_stale_p_rd
+
+    }.elsewhen(fire)
+    {
+        when(need_alloc_0)
+        {
             rat(uop0.l_rd) := prd_0
         }
-        when(need_alloc_1){
-            rat(uop1.l_rd) := prd_1
+        when(need_alloc_1)
+        {
+            rat(uop1.l_rd) := prd_1 
         }
     }
+
+
     for (i <- 1 until p.numPRegs){
         val i_U = i.U
 
@@ -119,12 +140,18 @@ extends Module
         val is_done_cdb1 = cdb1_v && (cdb1_p === i.U)
         val is_done = is_done_cdb0 || is_done_cdb1
 
-        is_free(i) := Mux(is_alloc, false.B,
+        val is_rbk_free = io.rbk_valid && (io.rbk_p_rd === i_U)
+
+
+
+        is_free(i) := Mux(is_rbk_free, true.B, 
+                            Mux(is_alloc, false.B,
                                     Mux(is_freed, true.B,
-                                                is_free(i)))
-        busy_table(i) := Mux(is_alloc, true.B,
+                                                is_free(i))))
+        busy_table(i) := Mux(is_rbk_free, true.B, 
+                                Mux(is_alloc, true.B,
                                         Mux(is_done, false.B,
-                                                    busy_table(i)))
+                                                    busy_table(i))))
 
     }
 

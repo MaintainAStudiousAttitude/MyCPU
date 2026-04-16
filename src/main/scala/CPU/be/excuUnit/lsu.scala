@@ -91,7 +91,7 @@ with MyCPU.common.constants.RISCVConsts
   when(store_buffer.io.deq.fire) {
     printf(p"  <--- [SB-POP]  🟢 ROB 允许提交! 正在写入物理内存! 出队地址: 0x${Hexadecimal(store_buffer.io.deq.bits.addr)}\n")
   }
-
+  
   // =========================================================
   // 3. Load 状态机
   // =========================================================

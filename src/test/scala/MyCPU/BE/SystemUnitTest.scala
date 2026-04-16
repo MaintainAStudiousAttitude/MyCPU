@@ -14,8 +14,8 @@ class SystemUnitTest extends AnyFlatSpec with ChiselScalatestTester {
     xLen = 64, 
     numLRegs = 32, 
     numPRegs = 64, 
-    numRobEntries = 32, // 小 ROB 方便观测
-    numIssueEntries = 16,
+    numRobEntries = 8, // 小 ROB 方便观测
+    numIssueEntries = 4,
     fetchWidth = 2, 
     decodeWidth = 2
   )
@@ -123,7 +123,7 @@ class SystemUnitTest extends AnyFlatSpec with ChiselScalatestTester {
       // 监控死循环指令 (0x0000006f)，如果执行到了说明程序正常结束
       // 注意：我们在测试台无法直接读内部 PC，所以在外层固定步进 300 拍
       println("Executing instructions... Please wait...")
-      c.clock.step(100)
+      c.clock.step(200)
 
       println("\n==========================================================")
       println("📊 Execution Finished. Inspecting D-Cache Memory:")
