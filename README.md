@@ -1,109 +1,79 @@
 # Baby R10k — RV64I 双发射乱序超标量处理器
 
-基于 Chisel/Scala 独立实现的 RISC-V 64位双发射乱序超标量处理器核，微架构参考 MIPS R10000 与 Berkeley BOOM 设计。
+本项目基于 Chisel/Scala 独立实现了一款面向 FPGA (PYNQ-Z2, Zynq-7020) 的 RISC-V 64位双发射乱序超标量处理器原型。微架构参考 MIPS R10000 与 Berkeley BOOM 设计，旨在软硬件协同的底层探索乱序执行的核心机制。
 
 ---
 
-## 项目概述
+## 📌 项目最新进展
 
-本项目从零开始独立设计并实现了一款面向 FPGA（PYNQ-Z2，xc7z020）的乱序超标量处理器原型。核心目标是完整实现乱序执行的三个根基机制：**显式寄存器重命名、数据驱动的动态调度、精确异常与顺序提交**。
-
----
-
-## 核心微架构特性
-
-### 寄存器重命名（Register Renaming）
-- 基于 RAT（寄存器别名表）+ Bit-Vector FreeList 实现显式物理寄存器重命名
-- 通过定制旁路网络解决双发射组内 RAW/WAW 冒险，支持 0 周期级联重命名
-- 采用 stale_p_rd 机制在 Commit 阶段精确回收物理寄存器
-
-### 动态乱序发射（Out-of-Order Issue）
-- 基于双路 CDB（公共数据总线）的动态唤醒网络，支持背靠背执行
-- ALU 与 LSU 独立发射队列，双路并行仲裁器，最大化执行单元利用率
-- 入队时检查 CDB 广播状态，避免操作数就绪指令入队死锁
-
-### 精确异常与顺序提交（Precise Exception）
-- 双路 Commit 的 ROB（重排序缓冲区），强制顺序提交保证精确异常语义
-- 支持分支跳转与异常两类 Flush，分别在 ALU 执行阶段与 ROB Commit 阶段触发
-- ROB Walk 机制逐条回滚 RAT 状态与 FreeList，精确恢复架构状态
-
-### 访存子系统（Memory Subsystem）
-- 读写分离访存管线，Store Buffer 机制保证乱序执行下内存写入的顺序一致性
-- 以 TileLink 总线 ACK 信号驱动 Store 出队，确保写回完成后才释放资源
-- 采用保守 Load 策略，Store Buffer 非空时阻止 Load 发射，规避内存地址别名消解的硬件开销
+- **支持裸机 (Bare-metal) C 程序运行**：构建了基于 `tohost` 机制的测试外壳，已成功运行由标准 GCC 工具链（`-O2 -march=rv64i`）编译的纯计算类 C 语言程序。
+- **推测执行与状态恢复闭环**：移除了早期的分支停顿 (Stall-on-Branch) 限制，实现了基于 ROB 倒推机制的错误状态恢复，确立了基础的乱序推测执行框架。
 
 ---
 
-## 技术栈
+## 🏗️ 核心微架构特性
+
+### 1. 物理寄存器重命名 (Explicit Register Renaming)
+- **统一寄存器堆 (Unified PRF)**：采用显式物理寄存器重命名机制，废弃 Tomasulo 传统的保留站数据搬运。
+- **并发分配与回收**：采用位向量 (Bit-Vector) 结合双 PriorityEncoder 实现 FreeList 的 0 周期并发分配。
+- **组内旁路**：通过组合逻辑前推网络，解决双发射组内的 RAW/WAW 冒险，支持背靠背依赖指令的同周期重命名。
+
+### 2. 动态调度发射 (Out-of-Order Issue)
+- **唤醒与仲裁**：基于双路 CDB（公共数据总线）的全扇出匹配机制进行唤醒；ALU 与 LSU 采用独立的仲裁队列以简化逻辑层级。
+- **基于年龄的分支冲刷 (Age-based Selective Flush)**：在分支预测失败时，发射队列利用环形 `rob_idx` 计算指令的相对年龄，定点清除错误路径上的推测指令，保留合法旧指令继续乱序执行。
+
+### 3. 精确异常与顺序提交 (Precise Exception & In-Order Commit)
+- **顺序提交保障**：采用双路 Commit 的 ROB（重排序缓冲区），确保体系结构状态的严格顺序更新。
+- **ROB Walk 回滚状态机**：发生分支误预测时，ROB 冻结前端流水线，启动倒序遍历，将错误分配的物理寄存器逐个归还 FreeList，并利用指令记录的旧映射恢复 RAT (寄存器别名表) 状态。
+
+### 4. 访存子系统 (Memory Subsystem)
+- **Store Buffer 延迟写入**：Store 指令在执行阶段仅写入推测性缓冲，严格等待 ROB 提交授权后方可修改物理内存。
+- **保守调度策略 (当前版本)**：为规避复杂的内存消歧 (Memory Disambiguation) 硬件开销，当 Store Buffer 非空时，阻塞 Load 指令发射，以性能换取逻辑的绝对安全。
+
+---
+
+## 📊 基线性能测试 (Baseline Benchmarks)
+
+测试环境内置了周期级 IPC 探针，目前采集到的初步基线数据如下：
+
+- **测试用例**：裸机 C 语言 Fibonacci 数列计算
+- **基线性能数据**：**IPC ≈ 0.428**
+- **数据客观分析**：由于当前版本**尚未集成硬件分支预测器**（前端取指采取固定不跳转策略），在执行循环密集型代码时，处理器承受了高频的分支推测失败与流水线冲刷惩罚 (Flush Penalty)。该偏低的 IPC 数据符合无预测器乱序架构的理论预期，同时侧面验证了核心的 ROB 回滚与幽灵指令清理逻辑已能正确处理极端状态恢复。
+
+---
+
+## 🛠️ 技术栈与验证环境
 
 | 类别 | 工具 |
 |---|---|
-| 硬件描述语言 | Chisel/Scala |
-| 仿真框架 | Verilator + ChiselTest |
+| 硬件敏捷开发 | Chisel 3 / Scala |
+| 测试与验证 | ChiselTest / Verilator |
 | 构建系统 | Mill |
 | 综合布线 | Vivado 2024.1 |
 | 目标器件 | Xilinx xc7z020（PYNQ-Z2） |
-| 指令集架构 | RISC-V RV64I |
 
 ---
 
-## FPGA 综合结果
+## 📈 FPGA 综合与时序分析
 
 目标器件：**Xilinx xc7z020clg400-1**
 
-| 指标 | 数值 |
-|---|---|
-| 时钟频率 | **67 MHz** |
-| Slice LUT 占用 | 11866 / 53200（**22.3%**） |
-| Slice 占用 | 4611 / 13300（**34.7%**） |
-| Slice Register 占用 | 5820 / 106400（**5.47%**） |
-| Block RAM | 0%（全部使用 Distributed RAM） |
+| 指标 | 消耗资源 / 总资源 | 占比 |
+|---|---|---|
+| Slice LUTs | 11,866 / 53,200 | 22.3% |
+| Slice Registers | 5,820 / 106,400 | 5.47% |
+| Block RAM | 0 | 0% |
 
-### 时序分析
-
-| 指标 | 数值 |
-|---|---|
-| 时钟约束 | 15ns（67MHz） |
-| WNS | 0.175ns（时序收敛） |
-| 关键路径总延迟 | 14.457ns |
-| 逻辑延迟 | 2.199ns（15.2%） |
-| 布线延迟 | 12.258ns（**84.8%**） |
-
-### 关键路径分析
-
-关键路径位于 **Rename-to-Dispatch 跨模块组合逻辑链**，从前端取指队列出队指针出发，经过 Decode、RAT 查找、FreeList 判断，到达 Issue Queue 槽位写入，跨越三个主要模块。
-
-主要瓶颈：`slot_uop_valid` 信号扇出达 **137**，单条网线布线延迟 2.690ns，占整条路径的 18.6%。
-
-**优化方向**：
-- 在 Rename 与 Dispatch 之间插入流水线寄存器，切断跨模块组合逻辑链
-- 对高扇出信号进行寄存器复制
-- 将寄存器文件迁移至 Block RAM，释放 Distributed RAM 资源
+- **时序收敛情况**：在 15ns (约 66.6 MHz) 时钟约束下，WNS 为 +0.175ns。
+- **关键路径分析**：当前关键路径（~14.4ns）中，**布线延迟占比高达 84.8%**。主要瓶颈集中在 `Rename -> Dispatch -> Issue Queue` 的跨模块组合逻辑链上，反映了乱序并发数据结构在 FPGA 细粒度资源上的高昂互连代价。
 
 ---
 
-## 已知局限性
+## 🚧 局限性与未来工作 (Future Work)
 
-- 指令集：当前实现 RV64I，尚未支持 M 扩展（硬件乘除法器）和 C 扩展
-- 无 Cache：直接访问片上 BRAM，访存延迟固定
-- 无特权架构：尚未实现 CSR 和 M/U 模式切换，不能运行操作系统
-- 无分支预测器：采用保守顺序取指策略，跳转确认后触发 Flush
-- 验证：通过汇编程序和单模块单元测试验证基本正确性，尚未接入 DiffTest 和标准测试集
+本项目目前仍处于原型验证阶段，存在以下主要局限性，这也是下一阶段的优化方向：
 
----
-
-## 下一步计划
-
-- 补全 RISC-V 特权架构（CSR、M/U 模式切换）
-- 接入 DiffTest 框架与 riscv-tests 标准测试集
-- 实现 ICache/DCache
-- 实现 BTB + GShare 分支预测器
-- 对关键路径进行流水线切割，目标主频 100MHz+
-
----
-
-## 参考资料
-
-- MIPS R10000 微架构论文：*The MIPS R10000 Superscalar Microprocessor*
-- Berkeley BOOM：[https://github.com/riscv-boom/riscv-boom](https://github.com/riscv-boom/riscv-boom)
-- RISC-V ISA 规范：[https://riscv.org/specifications/](https://riscv.org/specifications/)
+1. **缺失分支预测**：前端亟需引入 BTB (分支目标缓冲) 与 BHT (分支历史表) 动态预测器，以解决严重的控制流阻塞瓶颈。
+2. **缺少指令扩展与特权级**：当前仅实现 RV64I 基础指令，暂未集成 M 扩展（硬件乘除法）功能单元；尚未实现 CSR 寄存器堆与 M/U 模式切换，无法运行操作系统。
+3. **物理存储瓶颈**：当前 4R2W 的物理寄存器堆依赖 LUTRAM 实现，严重限制了频率与面积。计划探索 LVT (活跃值表) + BRAM 复制技术的重构方案。
+4. **访存性能受限**：保守的 LSU 调度严重制约了访存吞吐，后续考虑加入 Store-to-Load Forwarding (数据前推) 机制。
