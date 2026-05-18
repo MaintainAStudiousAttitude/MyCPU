@@ -1,0 +1,200 @@
+[*]
+[*] GTKWave Analyzer v3.3.104 (w)1999-2020 BSI
+[*] Fri May 15 12:20:33 2026
+[*]
+[dumpfile] "/home/nalchr/Code/ChaoZuoGou/MyCPU/TestHarness.vcd"
+[dumpfile_mtime] "Fri May 15 07:13:49 2026"
+[dumpfile_size] 943355
+[savefile] "/home/nalchr/Code/ChaoZuoGou/MyCPU/test.gtkw"
+[timestart] 323
+[size] 2490 1376
+[pos] -51 -51
+*-4.002548 361 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1
+[treeopen] TestHarness.
+[treeopen] TestHarness.core.
+[treeopen] TestHarness.core.backend.
+[sst_width] 310
+[signals_width] 430
+[sst_expanded] 1
+[sst_vpaned_height] 414
+@22
++{TestHarness.core.frontend.pc_reg[63:0]} TestHarness.core.frontend.pc_reg[63:0]
+TestHarness.core.frontend.inst0[31:0]
+TestHarness.core.frontend.inst1[31:0]
+@200
+-
+@24
+TestHarness.core.backend.rob.head[3:0]
+TestHarness.core.backend.rob.tail[3:0]
+@200
+-
+@28
+[color] 2
+TestHarness.core.frontend.btb_hit
+@22
+TestHarness.core.frontend.if2_pred_target[63:0]
+@28
+TestHarness.core.frontend.if1_fire
+TestHarness.core.frontend.io_redirect_valid
+@200
+-
+@24
+TestHarness.core.backend.rob.head_idx[2:0]
+TestHarness.core.backend.rob.tail_idx[2:0]
+@28
+TestHarness.core.backend.rob.io_flush_pipeline
+TestHarness.core.backend.rob.is_flush
+@200
+-
+@24
+TestHarness.core.backend.rob.commit_count[1:0]
+@200
+-
+@28
+[color] 1
+TestHarness.core.backend.rob.is_walking
+TestHarness.core.backend.rob.can_commit_0
+TestHarness.core.backend.rob.can_commit_1
+@200
+-
+@24
+[color] 3
+TestHarness.core.backend.rob.rob_busy_0
+[color] 3
+TestHarness.core.backend.rob.rob_busy_1
+[color] 3
+TestHarness.core.backend.rob.rob_busy_2
+[color] 3
+TestHarness.core.backend.rob.rob_busy_3
+[color] 3
+TestHarness.core.backend.rob.rob_busy_4
+[color] 3
+TestHarness.core.backend.rob.rob_busy_5
+[color] 3
+TestHarness.core.backend.rob.rob_busy_6
+[color] 3
+TestHarness.core.backend.rob.rob_busy_7
+@200
+-
+@22
+TestHarness.core.backend.rob.debug_rob_inst_0[31:0]
+TestHarness.core.backend.rob.debug_rob_inst_1[31:0]
+TestHarness.core.backend.rob.debug_rob_inst_2[31:0]
+TestHarness.core.backend.rob.debug_rob_inst_3[31:0]
+TestHarness.core.backend.rob.debug_rob_inst_4[31:0]
+TestHarness.core.backend.rob.debug_rob_inst_5[31:0]
+TestHarness.core.backend.rob.debug_rob_inst_6[31:0]
+TestHarness.core.backend.rob.debug_rob_inst_7[31:0]
+@200
+-
+@24
+TestHarness.core.backend.alu.io_cdb_bits_rob_idx[2:0]
+@22
+TestHarness.core.backend.alu.io_cdb_bits_p_rd[5:0]
+@24
+TestHarness.core.backend.lsu.io_cdb_bits_rob_idx[2:0]
+@22
+TestHarness.core.backend.lsu.io_cdb_bits_p_rd[5:0]
+@200
+-
+@28
+TestHarness.core.backend.rob.rob_complete_0
+TestHarness.core.backend.rob.rob_complete_1
+TestHarness.core.backend.rob.rob_complete_2
+TestHarness.core.backend.rob.rob_complete_3
+TestHarness.core.backend.rob.rob_complete_4
+TestHarness.core.backend.rob.rob_complete_5
+TestHarness.core.backend.rob.rob_complete_6
+TestHarness.core.backend.rob.rob_complete_7
+@200
+-
+@28
+TestHarness.core.backend.rob.is_this_commit
+TestHarness.core.backend.rob.is_this_commit_1
+TestHarness.core.backend.rob.is_this_commit_2
+TestHarness.core.backend.rob.is_this_commit_3
+TestHarness.core.backend.rob.is_this_commit_4
+TestHarness.core.backend.rob.is_this_commit_5
+TestHarness.core.backend.rob.is_this_commit_6
+TestHarness.core.backend.rob.is_this_commit_7
+@200
+-
+@24
+TestHarness.core.backend.issue.slot_uop_0_rob_idx[2:0]
+TestHarness.core.backend.issue.slot_uop_1_rob_idx[2:0]
+TestHarness.core.backend.issue.slot_uop_2_rob_idx[2:0]
+TestHarness.core.backend.issue.slot_uop_3_rob_idx[2:0]
+@200
+-
+@28
+TestHarness.core.backend.issue.is_this_issued
+TestHarness.core.backend.issue.is_this_issued_1
+TestHarness.core.backend.issue.is_this_issued_2
+TestHarness.core.backend.issue.is_this_issued_3
+@200
+-
+@28
+TestHarness.core.backend.issue.slot_rs1_ready_0
+TestHarness.core.backend.issue.slot_rs2_ready_0
+TestHarness.core.backend.issue.slot_rs1_ready_1
+TestHarness.core.backend.issue.slot_rs2_ready_1
+TestHarness.core.backend.issue.slot_rs1_ready_2
+TestHarness.core.backend.issue.slot_rs2_ready_2
+TestHarness.core.backend.issue.slot_rs1_ready_3
+TestHarness.core.backend.issue.slot_rs2_ready_3
+@200
+-
+@22
+TestHarness.core.backend.issue.slot_uop_0_p_rs1[5:0]
+TestHarness.core.backend.issue.slot_uop_0_p_rs2[5:0]
+@200
+-
+-
+@22
+TestHarness.core.backend.issue.slot_uop_0_p_rs1[5:0]
+TestHarness.core.backend.issue.slot_uop_0_p_rs2[5:0]
+TestHarness.core.backend.issue.slot_uop_1_p_rs1[5:0]
+TestHarness.core.backend.issue.slot_uop_1_p_rs2[5:0]
+TestHarness.core.backend.issue.slot_uop_2_p_rs1[5:0]
+TestHarness.core.backend.issue.slot_uop_2_p_rs2[5:0]
+TestHarness.core.backend.issue.slot_uop_3_p_rs1[5:0]
+TestHarness.core.backend.issue.slot_uop_3_p_rs2[5:0]
+@200
+-
+@22
+TestHarness.core.backend.rename.rat_0[5:0]
+TestHarness.core.backend.rename.rat_1[5:0]
+TestHarness.core.backend.rename.rat_2[5:0]
+TestHarness.core.backend.rename.rat_3[5:0]
+TestHarness.core.backend.rename.rat_4[5:0]
+TestHarness.core.backend.rename.rat_5[5:0]
+TestHarness.core.backend.rename.rat_6[5:0]
+TestHarness.core.backend.rename.rat_7[5:0]
+TestHarness.core.backend.rename.rat_8[5:0]
+TestHarness.core.backend.rename.rat_9[5:0]
+TestHarness.core.backend.rename.rat_10[5:0]
+TestHarness.core.backend.rename.rat_11[5:0]
+TestHarness.core.backend.rename.rat_12[5:0]
+TestHarness.core.backend.rename.rat_13[5:0]
+@23
+TestHarness.core.backend.rename.rat_14[5:0]
+@22
+TestHarness.core.backend.rename.rat_15[5:0]
+TestHarness.core.backend.rename.rat_16[5:0]
+TestHarness.core.backend.rename.rat_17[5:0]
+TestHarness.core.backend.rename.rat_18[5:0]
+TestHarness.core.backend.rename.rat_19[5:0]
+TestHarness.core.backend.rename.rat_20[5:0]
+TestHarness.core.backend.rename.rat_21[5:0]
+TestHarness.core.backend.rename.rat_22[5:0]
+TestHarness.core.backend.rename.rat_23[5:0]
+TestHarness.core.backend.rename.rat_24[5:0]
+TestHarness.core.backend.rename.rat_25[5:0]
+TestHarness.core.backend.rename.rat_26[5:0]
+TestHarness.core.backend.rename.rat_27[5:0]
+TestHarness.core.backend.rename.rat_28[5:0]
+TestHarness.core.backend.rename.rat_29[5:0]
+TestHarness.core.backend.rename.rat_30[5:0]
+TestHarness.core.backend.rename.rat_31[5:0]
+[pattern_trace] 1
+[pattern_trace] 0

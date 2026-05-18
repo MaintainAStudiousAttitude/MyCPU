@@ -61,7 +61,7 @@ with MyCPU.common.constants.RISCVConsts
         val match_rs2_cdb0 = io.cdb(0).valid && (io.cdb(0).bits.p_rd === uop.p_rs2) && (uop.p_rs2 =/= 0.U)
         val match_rs2_cdb1 = io.cdb(1).valid && (io.cdb(1).bits.p_rd === uop.p_rs2) && (uop.p_rs2 =/= 0.U)
         val wakeup_rs2 = match_rs2_cdb0 || match_rs2_cdb1
-
+    
         next_rs1_ready(i) := slot_rs1_ready(i) || wakeup_rs1
         next_rs2_ready(i) := slot_rs2_ready(i) || wakeup_rs2   
 
@@ -119,6 +119,8 @@ with MyCPU.common.constants.RISCVConsts
     io.enq.ready := has_space && !io.flush_mispredict
     val do_alloc = io.enq.fire && !io.flush_mispredict
 
+    
+
     val do_iss_alu = io.iss_alu.ready && can_iss_alu
     val do_iss_lsu = io.iss_lsu.ready && can_iss_lsu
 
@@ -166,9 +168,15 @@ with MyCPU.common.constants.RISCVConsts
                                                                 slot_rs2_ready(i)))
 
       debug_iss_inst(i) := Mux(is_this_alloc, alloc_uop.inst, debug_iss_inst(i))
+      /*
       when (slot_valid(i)) {
             printf(p"iss[$i] contains inst: 0x${Hexadecimal(debug_iss_inst(i))}\n")
         }
+        */
+        when(do_alloc && io.flush_mispredict) {
+  printf("[ISS-DANGER] Allocating during flush_mispredict! rob_idx_0=%d rob_idx_1=%d\n",
+    slot0_uop.rob_idx, slot1_uop.rob_idx)
+}
 
     }
     io.iss_alu.valid := can_iss_alu
@@ -177,7 +185,7 @@ with MyCPU.common.constants.RISCVConsts
     io.iss_lsu.valid := can_iss_lsu
     io.iss_lsu.bits  := slot_uop(sel_lsu_idx)
 
-    when(io.iss_lsu.valid) {
+    when(false.B && io.iss_lsu.valid) {
     printf("[ISSUE-LSU] Issuing to LSU! fu_code: %d, rob_idx: %d\n", io.iss_lsu.bits.fu_code, io.iss_lsu.bits.rob_idx)
     }
 }       

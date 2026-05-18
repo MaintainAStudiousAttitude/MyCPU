@@ -154,6 +154,7 @@ with MyCPU.common.constants.ScalaOpConsts {
   // ==========================================
   // 4. 非法地址访问断言 (可选，辅助调试)
   // ==========================================
+  /*
   when(lsu_fire && !isValidMemAddr(lsu_req.bits.addr) && lsu_req.bits.addr =/= TOHOST_ADDR) {
     printf(p"[TestHarness] WARN: LSU access to out-of-range addr 0x${Hexadecimal(lsu_req.bits.addr)}\n")
   }
@@ -167,6 +168,6 @@ with MyCPU.common.constants.ScalaOpConsts {
   when(RegNext(if_fire)) {
     printf(p"[IF-DATA] data=0x${Hexadecimal(core.io.imem.resp.bits.data)}\n") 
   }
-
+  */
 
 }

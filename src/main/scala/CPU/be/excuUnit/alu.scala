@@ -21,6 +21,8 @@ extends Bundle
     val br_resolved       = Output(Bool()) 
 
     val br_res = Output(Valid(new BranchResolution))
+    
+    val bpu_update = Output(Valid(new BpuUpdate))
 }
 
 class ALU_Unit(implicit p: CoreParams)
@@ -70,6 +72,57 @@ with MyCPU.common.constants.RISCVConsts
     val is_lt  = rs1_data.asSInt < rs2_data.asSInt
     val is_ltu = rs1_data < rs2_data
 
+    val actual_taken = MuxLookup(uop.br_type, false.B)(Seq(
+        B_EQ.U  -> is_eq,
+        B_NE.U  -> !is_eq,
+        B_LT.U  -> is_lt,
+        B_GE.U  -> !is_lt,
+        B_LTU.U -> is_ltu,
+        B_GEU.U -> !is_ltu,
+        B_J.U   -> true.B, 
+        B_JR.U  -> true.B  
+    ))
+
+    val actual_target = Mux(uop.br_type === B_JR.U,
+                        (rs1_data + uop.imm) & ~(1.U(p.xLen.W)),
+                        uop.pc + uop.imm
+    )
+    
+
+    val is_jump = uop.br_type === B_J.U || uop.br_type === B_JR.U
+    val is_branch_inst = uop.is_br || is_jump
+
+    val dir_mispredict = actual_taken =/= uop.pred_taken
+
+    val target_mispredict = actual_taken && (actual_target =/= uop.pred_target)
+
+    val is_mispredict = is_branch_inst && (dir_mispredict || target_mispredict)
+
+    io.br_redirect := req_valid && is_mispredict
+    io.br_redirect_pc := Mux(actual_taken, actual_target, uop.pc + 4.U)
+    io.br_redirect_rob_id := uop.rob_idx
+    io.br_resolved := req_valid && is_branch_inst
+    /*
+    io.bpu_update.valid       := req_valid && is_branch_inst
+    io.bpu_update.bits.taken  := actual_taken
+    io.bpu_update.bits.target := actual_target
+    io.bpu_update.bits.pc     := uop.pc
+    */
+    //test
+    io.bpu_update.valid := false.B
+    io.bpu_update.bits  := DontCare
+
+    io.cdb.bits.is_branch := is_branch_inst
+    io.cdb.bits.br_taken  := actual_taken
+    io.cdb.bits.br_target := actual_target
+    io.cdb.bits.br_pc     := uop.pc
+
+    io.br_res.valid := req_valid && (uop.is_br || is_jump)
+    io.br_res.bits.mispredicted := is_mispredict
+    io.br_res.bits.rob_idx := uop.rob_idx
+
+
+/*
     val is_taken = MuxLookup(uop.br_type, false.B)(Seq(
         B_EQ.U  -> is_eq,
         B_NE.U  -> !is_eq,
@@ -94,21 +147,31 @@ with MyCPU.common.constants.RISCVConsts
 
     io.br_resolved        := req_valid && (uop.is_br || is_jump)
 
-    io.br_res.valid := req_valid && (uop.is_br || is_jump)
-    io.br_res.bits.mispredicted := (is_mispredict || is_jump)
-    io.br_res.bits.rob_idx := uop.rob_idx
+*/
 
     io.cdb.valid := req_valid
     io.cdb.bits.rob_idx := uop.rob_idx
     io.cdb.bits.p_rd := uop.p_rd
     io.cdb.bits.exc := uop.exception
 
-    io.cdb.bits.data := Mux((uop.br_type === B_J.U) || (uop.br_type === B_JR.U), 
+    io.cdb.bits.data := Mux(is_jump, 
                             uop.pc + 4.U,
                             alu_out_final)
 
     when (io.req.valid) { // 只要有请求进来就打印
-    printf("[ALU] PC: 0x%x | OP1: %d | OP2: %d | Result: %d | is_mispredict: %b\n", 
-      uop.pc, op1, op2, alu_out_final, is_mispredict)
-  }                     
+        //printf("[ALU] PC: 0x%x | OP1: %d | OP2: %d | Result: %d | is_mispredict: %b\n", 
+        //uop.pc, op1, op2, alu_out_final, is_mispredict)
+        when ((uop.alu_op === 0.U) && uop.is_w)
+        {
+            printf("    addiw check PC: 0x%x | OP1: %d | OP2: %d | Result: %d\n",
+            uop.pc, op1, op2, alu_out_final)
+        }
+        when ((uop.alu_op === 0.U) && (uop.imm_sel === 0.U) && (uop.imm === 0.U))
+        {
+            printf("    mv check PC: 0x%x | OP1: %d | OP2: %d | Result: %d\n",
+            uop.pc, op1, op2, alu_out_final)
+
+        }
+    }
+        
 }

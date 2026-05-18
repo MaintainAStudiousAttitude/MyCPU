@@ -1,0 +1,238 @@
+package MyCPU.be
+
+import chisel3._
+import chisel3.util._
+
+import MyCPU.common._
+
+class LsuIO(implicit p: CoreParams) extends Bundle {
+  val req = Flipped(Decoupled(new FuncUnitReq))
+  val cdb = Valid(new CDBIO)
+  val dmem = new SimpleMemIO
+  val commit_store = Input(Bool())
+
+  // 新增：用于 mispredict 时按年龄冲刷 SB
+  val flush_pipeline = Input(Bool())               // 全局异常冲刷
+  val flush_mispredict = Input(Bool())              // mispredict 冲刷（持续整个 walk）
+  val mispredict_rob_idx = Input(UInt(p.robBits.W)) // mispredict 指令的 rob_idx
+  val rob_head_idx = Input(UInt(p.robBits.W))       // 当前 ROB head
+}
+
+class StoreBufferEntry(implicit p: CoreParams) 
+extends Bundle {
+  val valid   = Bool()
+  val addr    = UInt(p.xLen.W)
+  val data    = UInt(p.xLen.W)
+  val size    = UInt(2.W)
+  val rob_idx = UInt(p.robBits.W)  // 关键：记录对应的 ROB 索引，用于年龄比较
+}
+
+class LSU_Unit(implicit p: CoreParams) 
+extends Module
+with MyCPU.common.constants.ScalaOpConsts
+with MyCPU.common.constants.RISCVConsts
+{
+  val io = IO(new LsuIO)
+
+  val uop      = io.req.bits.uop
+  val rs1_data = io.req.bits.rs1_data
+  val rs2_data = io.req.bits.rs2_data
+
+  // =========================================================
+  // 1. AGU (地址生成) 与 数据对齐
+  // =========================================================
+  val effective_addr = rs1_data + uop.imm
+
+  val store_data_b = Fill(8, rs2_data(7, 0))
+  val store_data_h = Fill(4, rs2_data(15, 0))
+  val store_data_w = Fill(2, rs2_data(31, 0))
+  
+  val store_data_aligned = MuxLookup(uop.mem_size, rs2_data)(Seq(
+    MT_B.U -> store_data_b,
+    MT_H.U -> store_data_h,
+    MT_W.U -> store_data_w
+  ))
+
+  // =========================================================
+  // 2. Store Buffer —— 手动环形缓冲区（支持按年龄冲刷）
+  // =========================================================
+  val SB_DEPTH = 4
+  val sb = Reg(Vec(SB_DEPTH, new StoreBufferEntry))
+  val sb_head = RegInit(0.U(log2Ceil(SB_DEPTH).W))
+  val sb_tail = RegInit(0.U(log2Ceil(SB_DEPTH).W))
+  val sb_count = RegInit(0.U((log2Ceil(SB_DEPTH) + 1).W))
+
+  val sb_empty = sb_count === 0.U
+  val sb_full  = sb_count === SB_DEPTH.U
+
+  val is_store = uop.mem_cmd === MC_W.U
+  val is_load  = uop.mem_cmd === MC_R.U
+
+  // --- 年龄比较函数（与 IssueQueue 一致）---
+  def is_Younger(now_idx: UInt, target_idx: UInt, head: UInt): Bool = {
+    val now_age    = now_idx - head
+    val target_age = target_idx - head
+    now_age > target_age
+  }
+
+  // --- 冲刷逻辑 ---
+  // 全局 flush：清空整个 SB
+  // mispredict flush：从 tail 往回扫，清除所有比 mispredict 指令更年轻的条目
+  val flush_count = WireDefault(0.U((log2Ceil(SB_DEPTH) + 1).W))
+
+  when(io.flush_pipeline) {
+    // 全局异常：清空所有
+    sb_head  := 0.U
+    sb_tail  := 0.U
+    sb_count := 0.U
+    for (i <- 0 until SB_DEPTH) {
+      sb(i).valid := false.B
+    }
+  } .elsewhen(io.flush_mispredict) {
+    // 按年龄冲刷：从 tail 往 head 方向扫描，移除所有 younger 的条目
+    // 策略：逐个检查，从最年轻的（tail-1）开始
+    val new_tail  = WireDefault(sb_tail)
+    val new_count = WireDefault(sb_count)
+
+    // 从 tail-1 开始往回检查（最多检查 sb_count 个）
+    // 因为 SB 是按程序序入队的，tail 端是最年轻的
+    // 只需要从 tail 端连续弹出 younger 的即可
+    val trim = WireDefault(0.U((log2Ceil(SB_DEPTH) + 1).W))
+    
+    for (i <- 0 until SB_DEPTH) {
+      val check_ptr = sb_tail - 1.U - i.U
+      val check_idx = check_ptr(log2Ceil(SB_DEPTH) - 1, 0)
+      val in_range  = i.U < sb_count  // 只检查有效范围内的
+      val is_young  = is_Younger(sb(check_idx).rob_idx, io.mispredict_rob_idx, io.rob_head_idx)
+      
+      when(in_range && is_young && trim === i.U) {
+        // 连续 younger 的条目，标记为无效
+        sb(check_idx).valid := false.B
+        trim := (i + 1).U
+      }
+    }
+
+    sb_tail  := sb_tail - trim
+    sb_count := sb_count - trim
+  }
+
+  // --- 入队逻辑 ---
+  val do_enq = io.req.fire && is_store && !io.flush_pipeline && !io.flush_mispredict
+  
+  when(do_enq) {
+    sb(sb_tail).valid   := true.B
+    sb(sb_tail).addr    := effective_addr
+    sb(sb_tail).data    := store_data_aligned
+    sb(sb_tail).size    := uop.mem_size
+    sb(sb_tail).rob_idx := uop.rob_idx
+    sb_tail  := sb_tail + 1.U
+    sb_count := sb_count + 1.U
+  }
+
+  // --- 出队逻辑（commit 阶段）---
+  val head_entry = sb(sb_head)
+  val do_deq = !sb_empty && head_entry.valid && io.commit_store && io.dmem.req.ready &&
+               !io.flush_pipeline && !io.flush_mispredict
+
+  when(do_deq) {
+    sb(sb_head).valid := false.B
+    sb_head  := sb_head + 1.U
+    sb_count := sb_count - 1.U
+  }
+
+  // 同时入队出队时 count 不变
+  when(do_enq && do_deq) {
+    sb_count := sb_count  // +1 -1 = 0 变化
+  }
+
+  // --- 调试打印 ---
+  when(do_enq || do_deq || !sb_empty) {
+    printf(p"[SB-STATUS] 📦 当前 SB 元素个数: ${sb_count}/${SB_DEPTH} | 满: ${sb_full} | 空: ${sb_empty}\n")
+  }
+  when(do_enq) {
+    printf(p"  ---> [SB-PUSH] 🔴 入队! addr=0x${Hexadecimal(effective_addr)}, data=${store_data_aligned}, rob_idx=${uop.rob_idx}\n")
+  }
+  when(do_deq) {
+    printf(p"  <--- [SB-POP]  🟢 出队! addr=0x${Hexadecimal(head_entry.addr)}, rob_idx=${head_entry.rob_idx}\n")
+  }
+
+  // =========================================================
+  // 3. Load 状态机
+  // =========================================================
+  val s_IDLE :: s_WAIT_MEM :: Nil = Enum(2)
+  val state = RegInit(s_IDLE)
+
+  val load_uop_reg  = Reg(new MicroOp)
+  val load_addr_reg  = Reg(UInt(p.xLen.W))
+
+  val load_can_issue = is_load && sb_empty
+  io.req.ready := (state === s_IDLE) && 
+                  Mux(is_store, !sb_full, load_can_issue) &&
+                  !io.flush_pipeline && !io.flush_mispredict
+
+  when(io.flush_pipeline || io.flush_mispredict) {
+    // flush 时如果 load 正在等内存，也要取消
+    when(state === s_WAIT_MEM) {
+      state := s_IDLE
+    }
+  } .elsewhen(io.req.fire && is_load) {
+    state := s_WAIT_MEM
+    load_uop_reg  := uop
+    load_addr_reg := effective_addr
+  } .elsewhen(state === s_WAIT_MEM && io.dmem.resp.valid) {
+    state := s_IDLE
+  }
+
+  // =========================================================
+  // 4. 外部内存接口控制
+  // =========================================================
+  val do_load_req  = io.req.valid && is_load && sb_empty && (state === s_IDLE) &&
+                     !io.flush_pipeline && !io.flush_mispredict
+  val do_store_req = !sb_empty && head_entry.valid && io.commit_store &&
+                     !io.flush_pipeline && !io.flush_mispredict
+
+  io.dmem.req.valid     := do_load_req || do_store_req
+  io.dmem.req.bits.addr := Mux(do_load_req, effective_addr, head_entry.addr)
+  io.dmem.req.bits.data := head_entry.data
+  io.dmem.req.bits.cmd  := Mux(do_load_req, MC_R.U, MC_W.U)
+  io.dmem.req.bits.size := Mux(do_load_req, uop.mem_size, head_entry.size)
+
+  // =========================================================
+  // 5. Load 数据后处理 (符号扩展)
+  // =========================================================
+  val raw_mem_data = io.dmem.resp.bits.data
+  val shift_amount = (load_addr_reg(2, 0) * 8.U)(5, 0)
+  val shifted_data = raw_mem_data >> shift_amount
+
+  val b_data = shifted_data(7, 0)
+  val h_data = shifted_data(15, 0)
+  val w_data = shifted_data(31, 0)
+
+  val load_data_final = MuxLookup(load_uop_reg.mem_size, raw_mem_data)(Seq(
+    MT_B.U -> Mux(load_uop_reg.mem_signed, b_data.asSInt.pad(p.xLen).asUInt, b_data.zext.asUInt),
+    MT_H.U -> Mux(load_uop_reg.mem_signed, h_data.asSInt.pad(p.xLen).asUInt, h_data.zext.asUInt),
+    MT_W.U -> Mux(load_uop_reg.mem_signed, w_data.asSInt.pad(p.xLen).asUInt, w_data.zext.asUInt)
+  ))
+
+  // =========================================================
+  // 6. CDB 广播逻辑
+  // =========================================================
+  io.cdb.valid        := false.B
+  io.cdb.bits.rob_idx := 0.U
+  io.cdb.bits.p_rd    := 0.U
+  io.cdb.bits.data    := 0.U
+  io.cdb.bits.exc     := false.B
+
+  when(io.req.fire && is_store) {
+    io.cdb.valid        := true.B
+    io.cdb.bits.rob_idx := uop.rob_idx
+    io.cdb.bits.p_rd    := 0.U
+    io.cdb.bits.exc     := uop.exception
+  } .elsewhen(state === s_WAIT_MEM && io.dmem.resp.valid) {
+    io.cdb.valid        := true.B
+    io.cdb.bits.rob_idx := load_uop_reg.rob_idx
+    io.cdb.bits.p_rd    := load_uop_reg.p_rd
+    io.cdb.bits.data    := load_data_final
+    io.cdb.bits.exc     := load_uop_reg.exception
+  }
+}

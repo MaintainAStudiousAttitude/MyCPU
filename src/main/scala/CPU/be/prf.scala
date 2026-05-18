@@ -27,21 +27,48 @@ extends Bundle
     val wb_lsu_valid = Input(Bool())
     val wb_lsu_pdst  = Input(UInt(p.pRegBits.W))
     val wb_lsu_data  = Input(UInt(p.xLen.W))
+
+    val debug_commit_req_p_rd = Input(Vec(p.decodeWidth, UInt(p.pRegBits.W)))
+    val debug_commit_resp_data = Output(Vec(p.decodeWidth, UInt(p.xLen.W)))
 }
 
 class PRF(implicit p: CoreParams) extends Module {
   val io = IO(new PRFIO)
 
+  
   // 物理寄存器堆实体 (64 个 64-bit 寄存器)
   // 在 FPGA 上，如果端口太多，这会被综合成分布式 RAM (LUTRAM)
   val regfile = RegInit(VecInit(Seq.fill(p.numPRegs)(0.U(p.xLen.W))))
 
+  //forward bypass
+  def forwardRead(req_rs: UInt): UInt = {
+    Mux(req_rs === 0.U, 0.U,
+      Mux(io.wb_alu_valid && io.wb_alu_pdst === req_rs, io.wb_alu_data,
+        Mux(io.wb_lsu_valid && io.wb_lsu_pdst === req_rs, io.wb_lsu_data,
+          regfile(req_rs) // 如果都没有正在写入的新数据，才老老实实读旧寄存器
+        )
+      )
+    )
+  }
+
   // 1. 读逻辑 (组合逻辑直出，注意 p0 永远读出 0)
+  /*
   io.alu_resp_rs1 := Mux(io.alu_req_rs1 === 0.U, 0.U, regfile(io.alu_req_rs1))
   io.alu_resp_rs2 := Mux(io.alu_req_rs2 === 0.U, 0.U, regfile(io.alu_req_rs2))
   
   io.lsu_resp_rs1 := Mux(io.lsu_req_rs1 === 0.U, 0.U, regfile(io.lsu_req_rs1))
   io.lsu_resp_rs2 := Mux(io.lsu_req_rs2 === 0.U, 0.U, regfile(io.lsu_req_rs2))
+  */
+  io.alu_resp_rs1 := forwardRead(io.alu_req_rs1)
+  io.alu_resp_rs2 := forwardRead(io.alu_req_rs2)
+
+  io.lsu_resp_rs1 := forwardRead(io.lsu_req_rs1)
+  io.lsu_resp_rs2 := forwardRead(io.lsu_req_rs2)
+
+  //debug usage
+  for (w <- 0 until p.decodeWidth) {
+    io.debug_commit_resp_data(w) := forwardRead(io.debug_commit_req_p_rd(w))
+  }
 
   // 2. 写逻辑 (同步写入)
   // p0 是硬件 0，绝不允许被写入
@@ -53,6 +80,10 @@ class PRF(implicit p: CoreParams) extends Module {
   when(io.wb_lsu_valid && io.wb_lsu_pdst =/= 0.U) {
     regfile(io.wb_lsu_pdst) := io.wb_lsu_data
   }
-
+  /*
+  for (w <- 0 until p.decodeWidth) {
+    io.debug_commit_resp_data(w) := Mux(io.debug_commit_req_p_rd(w) === 0.U, 0.U, regfile(io.debug_commit_req_p_rd(w)))
+  }
+  */
   
 }

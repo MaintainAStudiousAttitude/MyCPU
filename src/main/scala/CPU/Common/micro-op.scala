@@ -66,4 +66,8 @@ with MyCPU.common.constants.RISCVConsts
     //exception
     val exception = Bool()
     val exc_cause = UInt(p.xLen.W)
+
+    //bp
+    val pred_taken = Bool()
+    val pred_target = UInt(p.xLen.W)
 }

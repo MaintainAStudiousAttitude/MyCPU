@@ -24,7 +24,7 @@ class BenchmarkSpec extends AnyFlatSpec with ChiselScalatestTester {
     test(new TestHarness("/home/nalchr/Code/ChaoZuoGou/MyCPU/src/test/resources/dhrystone.hex"))
       .withAnnotations(Seq(WriteVcdAnnotation)) { dut =>
       
-      dut.clock.setTimeout(100000) // 放大超时时间，Dhrystone 可能会跑几十万拍
+      dut.clock.setTimeout(5000) // 放大超时时间，Dhrystone 可能会跑几十万拍
 
       println("🚀 [Simulation Started] Running Dhrystone benchmark...")
 

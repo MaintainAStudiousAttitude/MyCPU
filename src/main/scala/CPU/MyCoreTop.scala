@@ -39,6 +39,8 @@ class MyCoreTop(implicit p: CoreParams) extends Module {
   frontend.io.redirect_valid := backend.io.redirect_valid
   frontend.io.redirect_pc    := backend.io.redirect_pc
 
+  frontend.io.bpu_update := backend.io.bpu_update
+
   // --------------------------------------------------------
   // C. 连接外部接口 (External Interfaces)
   // --------------------------------------------------------
@@ -54,8 +56,23 @@ class MyCoreTop(implicit p: CoreParams) extends Module {
   // 在顶层暴露一些关键信号，方便验证时观察 CPU 整体状态
   // 例如：当前正在提交的 PC，或者是否发生了 Flush
   io.commit_count := backend.io.commit_num
+
+  for (w <- 0 until p.decodeWidth) {
+    val cmt  = backend.io.debug_commit(w)
+    val data = backend.io.debug_commit_data(w)
+
+    // 只有在有效提交时才打印
+    when (cmt.valid) {
+      // 区分这是否是一条写寄存器的指令
+      when (cmt.rf_wen && cmt.l_rd =/= 0.U) {
+        //printf(p"CORE_COMMIT: PC=0x${Hexadecimal(cmt.pc)}, INST=0x${Hexadecimal(cmt.inst)}, REG[${cmt.l_rd}]=0x${Hexadecimal(data)}\n")
+      } .otherwise {
+        //printf(p"CORE_COMMIT: PC=0x${Hexadecimal(cmt.pc)}, INST=0x${Hexadecimal(cmt.inst)}\n")
+      }
+    }
+  }
   /*
   val debug_commit_pc = Output(UInt(p.xLen.W))
   debug_commit_pc := backend.io.debug_commit_pc // 假设你在 BackendTop 连出了这个信号
   */
-}
+}//IF-DATA

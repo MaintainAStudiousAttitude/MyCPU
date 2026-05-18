@@ -78,10 +78,13 @@ with MyCPU.common.constants.RISCVConsts
     io.iss_alu.ready          := alu_pipe_reg.io.enq.ready
     io.exe_alu               <> alu_pipe_reg.io.deq
 
+
     // LSU 通路连接
     lsu_pipe_reg.io.enq.valid := io.iss_lsu.valid
     lsu_pipe_reg.io.enq.bits  := lsu_req
     io.iss_lsu.ready          := lsu_pipe_reg.io.enq.ready
     io.exe_lsu               <> lsu_pipe_reg.io.deq
+
+
 
 }

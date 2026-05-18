@@ -50,7 +50,7 @@ extends Module
     val uop0 = io.enq.bits(0)
     val uop1 = io.enq.bits(1)
     val need_alloc_0 = uop0.valid && uop0.rf_wen && (uop0.l_rd =/= 0.U)
-    val need_alloc_1 = uop1.rf_wen && (uop1.l_rd =/= 0.U)
+    val need_alloc_1 = uop1.valid && uop1.rf_wen && (uop1.l_rd =/= 0.U)
 
     val prd_0 = Mux(need_alloc_0, free_idx_0, 0.U)
     val prd_1 = Mux(need_alloc_1, 

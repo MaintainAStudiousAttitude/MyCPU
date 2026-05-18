@@ -11,15 +11,45 @@ extends Bundle
     val inst = UInt(32.W)
     val pc = UInt(p.xLen.W)
     val valid = Bool() // to deal with unaligned branch target
+
+    //bp
+    val pred_taken = Bool()
+    val pred_target = UInt(p.xLen.W)
+}
+
+class BpuUpdate(implicit p: CoreParams)
+extends Bundle
+{
+  val pc = UInt(p.xLen.W)
+  val target = UInt(p.xLen.W)
+  val taken = Bool()
+}
+//ai ren qv ni men ying le
+class CommitDebug(implicit p: CoreParams)
+extends Bundle
+{
+  val valid = Bool()
+  val pc     = UInt(p.xLen.W)
+  val inst   = UInt(32.W)
+  val l_rd   = UInt(5.W)
+  val p_rd   = UInt(p.pRegBits.W)
+  val rf_wen = Bool()
 }
 
 class CDBIO(implicit p: CoreParams)
 extends Bundle
+with MyCPU.common.constants.ScalaOpConsts
 {
     val rob_idx = UInt(p.robBits.W)
     val p_rd = UInt(p.pRegBits.W)
     val data = UInt(p.xLen.W)
     val exc = Bool()
+
+    //test
+    val is_branch = Bool()
+    val br_taken  = Bool()
+    val br_target = UInt(p.xLen.W)
+    val br_pc     = UInt(p.xLen.W)
 }
 
 class FuncUnitReq(implicit p: CoreParams)

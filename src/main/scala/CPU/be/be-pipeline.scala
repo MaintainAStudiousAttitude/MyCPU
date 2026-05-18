@@ -15,6 +15,11 @@ extends Bundle
     val commit_num = Output(UInt(2.W))
 
     val dmem = new SimpleMemIO
+
+    val bpu_update = Output(Valid(new BpuUpdate))
+
+    val debug_commit      = Output(Vec(p.decodeWidth, new CommitDebug))
+    val debug_commit_data = Output(Vec(p.decodeWidth, UInt(p.xLen.W)))
 }   
 
 class BackEndTOP(implicit p: CoreParams)
@@ -46,38 +51,6 @@ with MyCPU.common.constants.RISCVConsts
   decode.io.deq.ready := rename.io.enq.ready
   rename.io.enq.bits := decode.io.deq.bits
 
-  //val dec_uop0 = decode.io.deq.bits(0)
-  //val dec_uop1 = decode.io.deq.bits(1)
-  //val is_branch_0 = dec_uop0.valid && (dec_uop0.is_br || dec_uop0.is_jal || dec_uop0.is_jalr)
-  
-
-  //val safe_uop1 = WireInit(dec_uop1)
-  /*
-  when (is_branch_0) {
-    safe_uop1.valid      := false.B // 标记为无效，Issue Queue 会忽略它，ROB 会让它瞬间 Complete
-    safe_uop1.rf_wen     := false.B // 极其关键：阻止 Rename 消耗 FreeList 分配物理寄存器！
-    safe_uop1.l_rd       := 0.U     // 双重保险：目标寄存器置零
-    safe_uop1.l_rs1      := 0.U
-    safe_uop1.l_rs2      := 0.U
-    safe_uop1.mem_cmd    := 0.U     // 阻止 LSU 误将其当作 Store 塞入 Store Buffer
-    safe_uop1.exception  := false.B // 确保它不会触发假异常
-  }
-  rename.io.enq.bits(0) := dec_uop0
-  rename.io.enq.bits(1) := safe_uop1// 单发射拆包
-  */
-  // --------------------------------------------------------
-  // C.[新增: 分支停顿] Dispatch (Rename -> Issue & ROB)
-  // --------------------------------------------------------
-  /*val branch_in_flight = RegInit(false.B)
-
-  // 提取即将进入后端的微指令
-  val ren_uop0 = rename.io.deq.bits(0)
-  val ren_uop1 = rename.io.deq.bits(1)
-
-  val has_branch_0 = ren_uop0.valid && (ren_uop0.is_br || ren_uop0.is_jal || ren_uop0.is_jalr)
-  val has_branch_1 = ren_uop1.valid && (ren_uop1.is_br || ren_uop1.is_jal || ren_uop1.is_jalr)
-  val has_branch = has_branch_0 || has_branch_1
-  */
   val dispatch_ready = rob.io.enq.ready && issue.io.enq.ready
 
   rename.io.deq.ready := dispatch_ready
@@ -92,14 +65,6 @@ with MyCPU.common.constants.RISCVConsts
     issue.io.enq.bits(w) := rename.io.deq.bits(w)
     issue.io.enq.bits(w).rob_idx := rob.io.rob_idx_alloc(w)
   }
-  /*
-  when (rob.io.flush_pipeline) {
-    branch_in_flight := false.B // 遇到全局异常冲刷，解除锁定
-  } .elsewhen (alu.io.br_resolved) {
-    branch_in_flight := false.B // ALU 算完分支了，解除锁定！
-  } .elsewhen (dispatch_fire && has_branch) {
-    branch_in_flight := true.B  // 分支指令进入了后端，拉下闸门！
-  }*/
 
   regread.io.iss_alu <> issue.io.iss_alu
   regread.io.iss_lsu <> issue.io.iss_lsu 
@@ -142,9 +107,15 @@ with MyCPU.common.constants.RISCVConsts
   rename.io.cdb  := cdb
   
   rename.io.commit_free := rob.io.commit_free
-  lsu.io.commit_store   := rob.io.commit_store(0) || rob.io.commit_store(1)
+  //lsu.io.commit_store   := rob.io.commit_store(0) || rob.io.commit_store(1)
+  lsu.io.commit_store := rob.io.commit_store
 
   issue.io.flush := rob.io.flush_pipeline 
+  //lsu change age tag queue
+  lsu.io.flush_mispredict   := issue.io.flush_mispredict
+  lsu.io.mispredict_rob_idx := issue.io.mispredict_rob_idx
+  lsu.io.rob_head_idx       := issue.io.rob_head_idx
+  lsu.io.flush              := rob.io.flush_pipeline
 
   io.redirect_valid := alu.io.br_redirect || rob.io.flush_pipeline
   io.redirect_pc    := Mux(alu.io.br_redirect, alu.io.br_redirect_pc, 0.U)
@@ -161,8 +132,17 @@ with MyCPU.common.constants.RISCVConsts
   issue.io.mispredict_rob_idx := alu.io.br_res.bits.rob_idx
   issue.io.rob_head_idx := rob.io.rob_head_idx
 
+  io.bpu_update := rob.io.bpu_update
+
   io.commit_num := rob.io.commit_num
 
-
+  //difftest 
+  io.debug_commit := rob.io.debug_commit
+  for (w <- 0 until p.decodeWidth) {
+        // 把 ROB 要提交的物理寄存器号给 PRF
+        prf.io.debug_commit_req_p_rd(w) := rob.io.debug_commit(w).p_rd
+        // 把 PRF 吐出来的数据接给外部
+        io.debug_commit_data(w) := prf.io.debug_commit_resp_data(w)
+  }
 
 }

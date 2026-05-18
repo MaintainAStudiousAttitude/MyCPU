@@ -226,7 +226,7 @@ object DecodeLogicCore
 extends MyCPU.common.constants.ScalaOpConsts
 with MyCPU.common.constants.RISCVConsts
 {
-    def apply(inst: UInt, pc: UInt, valid: Bool)(implicit p: CoreParams): MicroOp= {
+    def apply(inst: UInt, pc: UInt, valid: Bool, pred_taken: Bool, pred_target: UInt)(implicit p: CoreParams): MicroOp= {
         val uop = Wire(new MicroOp)
         val ctrl = Wire(new CtrlSigs)
 
@@ -284,6 +284,9 @@ with MyCPU.common.constants.RISCVConsts
         uop.exception := !ctrl.LEGAL
         uop.exc_cause := 0.U(p.xLen.W)
 
+        uop.pred_taken  := pred_taken 
+        uop.pred_target := pred_target
+
         uop
     }
 }
@@ -295,12 +298,18 @@ with MyCPU.common.constants.ScalaOpConsts
 with MyCPU.common.constants.RISCVConsts
 {
     val io = IO(new DecodeIO)
+    /*
+    when(io.deq.fire) {
+        printf(p"[DEC-OUT] inst0=0x${Hexadecimal(io.deq.bits(0).inst)} valid=${io.deq.bits(0).valid} pc=0x${Hexadecimal(io.deq.bits(0).pc)}\n")
+        printf(p"[DEC-OUT] inst1=0x${Hexadecimal(io.deq.bits(1).inst)} valid=${io.deq.bits(1).valid} pc=0x${Hexadecimal(io.deq.bits(1).pc)}\n")
+    }
+    */
     
     for(w <- 0 until p.decodeWidth)
     {
         val in_pkg = io.enq.bits(w)
 
-        val uop = DecodeLogicCore(in_pkg.inst, in_pkg.pc, in_pkg.valid)
+        val uop = DecodeLogicCore(in_pkg.inst, in_pkg.pc, in_pkg.valid, in_pkg.pred_taken, in_pkg.pred_target)
 
         uop.br_type := Seq(
             (DecodeTables.BEQ  , B_EQ ),

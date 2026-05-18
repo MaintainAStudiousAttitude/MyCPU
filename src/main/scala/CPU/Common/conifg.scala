@@ -7,8 +7,8 @@ case class CoreParams(
   xLen: Int = 64,
   numLRegs: Int = 32,
   numPRegs: Int = 64,
-  numRobEntries: Int = 32,
-  numIssueEntries: Int = 16,
+  numRobEntries: Int = 8,
+  numIssueEntries: Int = 4,
   hasFPU: Boolean = false,
   fetchWidth: Int = 2,
   decodeWidth: Int = 2
@@ -35,16 +35,4 @@ case class CoreParams(
   def GetRs1(inst: UInt): UInt = inst(19, 15)
 
   def GetRs2(inst: UInt): UInt = inst(24, 20)
-}
-
-object DefaultConfig{
-    def base = CoreParams
-    
-    def pynqConfig = CoreParams(
-    xLen = 64,
-    numPRegs = 48,       // 减少物理寄存器以节省 LUTRAM
-    numRobEntries = 16,  // 减小 ROB 以节省逻辑
-    numIssueEntries = 8, // 减小发射队列
-    hasFPU = false 
-    )
 }
