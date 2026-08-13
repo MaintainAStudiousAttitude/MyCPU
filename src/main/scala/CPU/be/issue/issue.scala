@@ -173,19 +173,21 @@ with MyCPU.common.constants.RISCVConsts
             printf(p"iss[$i] contains inst: 0x${Hexadecimal(debug_iss_inst(i))}\n")
         }
         */
-        when(do_alloc && io.flush_mispredict) {
-  printf("[ISS-DANGER] Allocating during flush_mispredict! rob_idx_0=%d rob_idx_1=%d\n",
-    slot0_uop.rob_idx, slot1_uop.rob_idx)
-}
-
+        /*
+      when(do_alloc && io.flush_mispredict) {
+        printf("[ISS-DANGER] Allocating during flush_mispredict! rob_idx_0=%d rob_idx_1=%d\n",
+        slot0_uop.rob_idx, slot1_uop.rob_idx)
+        }
+    */
     }
     io.iss_alu.valid := can_iss_alu
     io.iss_alu.bits  := slot_uop(sel_alu_idx)
 
     io.iss_lsu.valid := can_iss_lsu
     io.iss_lsu.bits  := slot_uop(sel_lsu_idx)
-
+/*
     when(false.B && io.iss_lsu.valid) {
-    printf("[ISSUE-LSU] Issuing to LSU! fu_code: %d, rob_idx: %d\n", io.iss_lsu.bits.fu_code, io.iss_lsu.bits.rob_idx)
+        printf("[ISSUE-LSU] Issuing to LSU! fu_code: %d, rob_idx: %d\n", io.iss_lsu.bits.fu_code, io.iss_lsu.bits.rob_idx)
     }
+    */
 }       

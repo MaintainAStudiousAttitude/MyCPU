@@ -64,7 +64,7 @@ with MyCPU.common.constants.RISCVConsts
         val up_idx = up_pc(idx_w + 2, 3)
         val up_tag = up_pc(p.xLen - 1, idx_w + 3)
 
-        printf(p"[BTB-UPDATE] pc=0x${Hexadecimal(up_pc)} idx=${up_idx} taken=${io.bpu_update.bits.taken} target=0x${Hexadecimal(io.bpu_update.bits.target)}\n")
+        //printf(p"[BTB-UPDATE] pc=0x${Hexadecimal(up_pc)} idx=${up_idx} taken=${io.bpu_update.bits.taken} target=0x${Hexadecimal(io.bpu_update.bits.target)}\n")
 
 
         btb_valid(up_idx) := io.bpu_update.bits.taken

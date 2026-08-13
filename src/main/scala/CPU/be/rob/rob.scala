@@ -271,10 +271,11 @@ with MyCPU.common.constants.RISCVConsts {
         rob_br_taken(i)  := Mux(is_wb && wb_is_branch, wb_br_taken, rob_br_taken(i))
         rob_br_target(i) := Mux(is_wb && wb_is_branch, wb_br_target, rob_br_target(i))
         rob_br_pc(i)     := Mux(is_wb && wb_is_branch, wb_br_pc, rob_br_pc(i))
-
+    /*
         when (is_this_commit){
             printf(p"[ROB-commit] slot=$i busy=${rob_busy(i)} complete=${rob_complete(i)} pc=0x${Hexadecimal(rob_pc(i))} inst=0x${Hexadecimal(debug_rob_inst(i))}\n")
         }
+        */
     }
     dontTouch(debug_rob_inst)
 
