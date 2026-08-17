@@ -116,6 +116,7 @@ with MyCPU.common.constants.RISCVConsts
     io.cdb.bits.br_taken  := actual_taken
     io.cdb.bits.br_target := actual_target
     io.cdb.bits.br_pc     := uop.pc
+    io.cdb.bits.br_type   := uop.br_type 
 
     io.br_res.valid := req_valid && (uop.is_br || is_jump)
     io.br_res.bits.mispredicted := is_mispredict

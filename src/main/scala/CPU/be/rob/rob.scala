@@ -91,6 +91,8 @@ with MyCPU.common.constants.RISCVConsts {
     val rob_br_taken  = Reg(Vec(p.numRobEntries, Bool()))
     val rob_br_target = Reg(Vec(p.numRobEntries, UInt(p.xLen.W)))
     val rob_br_pc     = Reg(Vec(p.numRobEntries, UInt(p.xLen.W)))
+    val rob_br_type   = Reg(Vec(p.numRobEntries, UInt(p.br_type_w.W)))
+    val rob_br_mispredict = RegInit(VecInit(Seq.fill(p.numRobEntries)(false.B)))
 
     def wrapInc(ptr: UInt, offset: UInt): UInt = {
         val sum = ptr + offset
@@ -226,6 +228,8 @@ with MyCPU.common.constants.RISCVConsts {
 
         val alloc_uop = Mux(is_alloced_0, io.enq.bits(0), io.enq.bits(1))
 
+        val is_br_res_match = io.br_res.valid &&(io.br_res.bits.rob_idx === i.U)
+
         val is_commited_0 = (commit_count >= 1.U) && (head_0 === i_u)
         val is_commited_1 = (commit_count === 2.U) && (head_1 === i_u)
         val is_this_commit = is_commited_0 || is_commited_1
@@ -242,6 +246,7 @@ with MyCPU.common.constants.RISCVConsts {
         val wb_br_taken  = wb_cdb.br_taken
         val wb_br_target = wb_cdb.br_target
         val wb_br_pc     = wb_cdb.br_pc
+        val wb_br_type   = wb_cdb.br_type
 
         rob_busy(i) := Mux(is_alloc, true.B,
                                 Mux(is_this_commit || is_rbk_clear, false.B, rob_busy(i)))
@@ -271,6 +276,9 @@ with MyCPU.common.constants.RISCVConsts {
         rob_br_taken(i)  := Mux(is_wb && wb_is_branch, wb_br_taken, rob_br_taken(i))
         rob_br_target(i) := Mux(is_wb && wb_is_branch, wb_br_target, rob_br_target(i))
         rob_br_pc(i)     := Mux(is_wb && wb_is_branch, wb_br_pc, rob_br_pc(i))
+        rob_br_type      := Mux(is_wb && wb_is_branch, wb_br_type, rob_br_type(i))
+        rob_br_mispredict := Mux(is_alloc, false.B,
+                                Mux(is_br_res_match, io.br_res.bits.mispredicted, rob_br_mispredict(i)))
     /*
         when (is_this_commit){
             printf(p"[ROB-commit] slot=$i busy=${rob_busy(i)} complete=${rob_complete(i)} pc=0x${Hexadecimal(rob_pc(i))} inst=0x${Hexadecimal(debug_rob_inst(i))}\n")
@@ -300,10 +308,17 @@ with MyCPU.common.constants.RISCVConsts {
     io.rob_head_idx := head_idx
     io.commit_num   := commit_count
 
-    io.bpu_update.valid := cmt0_fire && rob_is_branch(head_0)
-    io.bpu_update.bits.taken  := rob_br_taken(head_0)
-    io.bpu_update.bits.target := rob_br_target(head_0)
-    io.bpu_update.bits.pc     := rob_br_pc(head_0)
+    val br_commit_0 = cmt0_fire && rob_is_branch(head_0)
+    val br_commit_1 = cmt1_fire && rob_is_branch(head_1)
+
+    val chosen_head = Mux(br_commit_0, head_0, head_1)
+
+    io.bpu_update.valid := br_commit_0 || br_commit_1
+    io.bpu_update.bits.taken  := rob_br_taken(chosen_head)
+    io.bpu_update.bits.target := rob_br_target(chosen_head)
+    io.bpu_update.bits.pc     := rob_br_pc(chosen_head)
+    io.bpu_update.bits.br_type := rob_br_type(chosen_head)
+    io.bpu_update.bits.is_mispredict :=  rob_br_mispredict(chosen_head)
 
     // Difftest 调试总线输出
     io.debug_commit(0).valid  := cmt0_fire && rob_inst_valid(head_0)

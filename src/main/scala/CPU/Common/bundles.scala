@@ -23,6 +23,9 @@ extends Bundle
   val pc = UInt(p.xLen.W)
   val target = UInt(p.xLen.W)
   val taken = Bool()
+  val br_type = UInt(p.br_type_w.W)
+  val is_mispredict = Bool()
+
 }
 //ai ren qv ni men ying le
 class CommitDebug(implicit p: CoreParams)
@@ -50,6 +53,7 @@ with MyCPU.common.constants.ScalaOpConsts
     val br_taken  = Bool()
     val br_target = UInt(p.xLen.W)
     val br_pc     = UInt(p.xLen.W)
+    val br_type   = UInt(p.br_type_w.W)
 }
 
 class FuncUnitReq(implicit p: CoreParams)

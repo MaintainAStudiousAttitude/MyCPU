@@ -60,6 +60,9 @@ trait ScalaOpConsts
     val B_J   = 7  // Jump
     val B_JR  = 8  // Jump Register
 
+    def isCondBranch(br: UInt): Bool = (br >= B_NE) && (br <= B_LTU) 
+    def isJump(br: UInt): Bool = (br >= B_J) && (br <= B_JR)
+
     //Register File Write Enable Signal
     def REN_0 = false.B
     def REN_1 = true.B

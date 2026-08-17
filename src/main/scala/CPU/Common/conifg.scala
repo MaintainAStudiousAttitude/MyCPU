@@ -11,7 +11,8 @@ case class CoreParams(
   numIssueEntries: Int = 4,
   hasFPU: Boolean = false,
   fetchWidth: Int = 2,
-  decodeWidth: Int = 2
+  decodeWidth: Int = 2,
+  br_type_w = 4
 ) {
   // --- 辅助方法 (Helpers) ---
   // 这些方法可以帮助你在其他模块中快速计算位宽，避免到处写 log2Ceil
@@ -35,4 +36,11 @@ case class CoreParams(
   def GetRs1(inst: UInt): UInt = inst(19, 15)
 
   def GetRs2(inst: UInt): UInt = inst(24, 20)
+}
+
+case class BpuParams(
+  xLen: Int = 64,
+  btb_size: Int = 64
+){
+
 }
